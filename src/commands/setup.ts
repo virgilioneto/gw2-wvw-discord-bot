@@ -10,6 +10,8 @@ import {
   StringSelectMenuInteraction,
   ChannelType,
   PermissionFlagsBits,
+  StringSelectMenuOptionBuilder,
+  LabelBuilder,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { GuildMember } from '../models/GuildMember';
@@ -43,35 +45,48 @@ function buildSetupModal(title: string, guildName: string, apiKeyPlaceholder: st
 
   const nameInput = new TextInputBuilder()
     .setCustomId(INPUT_GUILD_NAME)
-    .setLabel('Nome da guilda')
     .setStyle(TextInputStyle.Short)
     .setPlaceholder('Nome exato da guilda no jogo')
     .setRequired(true)
     .setMaxLength(256);
   if (guildName) nameInput.setValue(guildName);
-
+  
+  const nameLabel = new LabelBuilder()
+    .setLabel("Nome da Guilda")
+    .setTextInputComponent(nameInput);
+  
   const keyInput = new TextInputBuilder()
     .setCustomId(INPUT_API_KEY)
-    .setLabel('Chave de API (Guild Wars 2)')
     .setStyle(TextInputStyle.Short)
     .setPlaceholder(apiKeyPlaceholder ? 'Deixe em branco para não alterar' : 'Cole sua chave de API')
     .setRequired(!apiKeyPlaceholder)
     .setMaxLength(128);
   if (!apiKeyPlaceholder) keyInput.setMinLength(64);
 
-  const dmNotifyInput = new TextInputBuilder()
+  const keyLabel = new LabelBuilder()
+    .setLabel("Chave da API do Guild Wars 2")
+    .setTextInputComponent(keyInput);
+  
+  const notifyDMSelect = new StringSelectMenuBuilder()
     .setCustomId(INPUT_DM_NOTIFY)
-    .setLabel('Notificar Jogador via DM')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('sim ou não')
-    .setRequired(false)
-    .setMaxLength(10);
-  dmNotifyInput.setValue(dmNotifyPlayer ? 'sim' : 'não');
+    .setPlaceholder('Escolha uma opção')
+    .setRequired(true)
+    .addOptions(
+      new StringSelectMenuOptionBuilder()
+      .setLabel('Não')
+      .setValue('false'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Sim')
+        .setDescription('O bot enviará DM se o jogador não definir a guilda como WvW no jogo.')
+        .setValue('true'),
+    );
 
-  const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput);
-  const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput);
-  const row3 = new ActionRowBuilder<TextInputBuilder>().addComponents(dmNotifyInput);
-  modal.addComponents(row1, row2, row3);
+    const notifyDMLabel = new LabelBuilder()
+      .setLabel("Enviar notificação via DM?")
+      .setStringSelectMenuComponent(notifyDMSelect);
+    
+    modal.addLabelComponents(nameLabel, keyLabel, notifyDMLabel); 
+
   return modal;
 }
 
@@ -358,19 +373,24 @@ function getPendingKey(interaction: StringSelectMenuInteraction): string {
 }
 
 async function tryShowSetupModalAfterRoles(interaction: StringSelectMenuInteraction): Promise<boolean> {
-  const key = getPendingKey(interaction);
-  if (!key || !interaction.guild) return false;
-  const baseId = pendingBaseRole.get(key);
-  const wvwId = pendingWvwRole.get(key);
-  if (baseId === undefined || wvwId === undefined) return false;
-  const existing = await Guild.findOne({ discord_server_id: interaction.guildId }).exec();
-  const modal = buildSetupModal(
-    existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
-    existing?.name ?? '',
-    existing?.api_key ? '••••••••' : '',
-    existing?.dm_notify_player ?? true
-  );
-  await interaction.showModal(modal);
+  try {
+    const key = getPendingKey(interaction);
+    if (!key || !interaction.guild) return false;
+    const baseId = pendingBaseRole.get(key);
+    const wvwId = pendingWvwRole.get(key);
+    if (baseId === undefined || wvwId === undefined) return false;
+    const existing = await Guild.findOne({ discord_server_id: interaction.guildId }).exec();
+    const modal = buildSetupModal(
+      existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
+      existing?.name ?? '',
+      existing?.api_key ? '••••••••' : '',
+      existing?.dm_notify_player ?? true
+    );
+    await interaction.showModal(modal);
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
   return true;
 }
 

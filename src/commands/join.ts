@@ -85,6 +85,10 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
     return;
   }
 
+  const member = interaction.guild?.members.resolve(interaction.user.id) ?? (await interaction.guild?.members.fetch(interaction.user.id).catch(() => null));
+  const hasBaseRole = !!guildDoc.base_discord_role && (member?.roles.cache.has(guildDoc.base_discord_role) ?? false);
+  const hasWvwRole = !!guildDoc.wvw_discord_role && (member?.roles.cache.has(guildDoc.wvw_discord_role) ?? false);
+
   // Desvincula este usuário de qualquer outro account_id nesta guilda
   await GuildMember.updateMany(
     { guild_id: guildDoc.guild_id, discord_user: interaction.user.id },
@@ -98,6 +102,8 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
         discord_user: interaction.user.id,
         status: 'PENDING',
         joined_at: new Date(),
+        base_discord_role: hasBaseRole,
+        wvw_discord_role: hasWvwRole,
       },
     },
     { upsert: true, new: true }

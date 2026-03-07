@@ -9,6 +9,8 @@ export interface IGuildMember extends Document {
   wvw_member: boolean;
   joined_at: Date;
   status: GuildMemberStatus;
+  base_discord_role: boolean;
+  wvw_discord_role: boolean;
 }
 
 const GuildMemberSchema: Schema = new Schema({
@@ -18,6 +20,8 @@ const GuildMemberSchema: Schema = new Schema({
   wvw_member: { type: Boolean, default: false },
   joined_at: { type: Date, default: Date.now },
   status: { type: String, enum: ['PENDING', 'CONFIRMED'], default: 'PENDING' },
+  base_discord_role: { type: Boolean, default: false },
+  wvw_discord_role: { type: Boolean, default: false },
 });
 
 // Índice composto para upsert por guild_id + account_id

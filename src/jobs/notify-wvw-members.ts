@@ -102,10 +102,11 @@ async function run(): Promise<void> {
       guild_id: guild.guild_id,
       discord_user: { $ne: '' },
       wvw_member: false,
+      $or: [{ base_discord_role: true }, { wvw_discord_role: true }],
     }).exec();
 
     if (members.length === 0) {
-      console.log(`[${guild.name}] Nenhum membro com wvw_member=false e Discord vinculado.`);
+      console.log(`[${guild.name}] Nenhum membro com wvw_member=false, Discord vinculado e role base ou WvW.`);
       continue;
     }
 

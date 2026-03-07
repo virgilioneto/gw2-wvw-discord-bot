@@ -9,7 +9,7 @@ import {
   InteractionType,
 } from 'discord.js';
 import { connectDatabase } from './database/connection';
-import { handleGuildMemberAdd } from './events/guildMemberAdd';
+import { handleGuildMemberUpdate } from './events/guildMemberUpdate';
 import { handleDirectMessage } from './events/messageCreate';
 import { joinCommand, handleJoinCommand, handleJoinModalSubmit } from './commands/join';
 import { setupCommand, handleSetupCommand, handleSetupModalSubmit, handleSetupChannelSelect, handleSetupBaseRoleSelect, handleSetupWvwRoleSelect } from './commands/setup';
@@ -36,8 +36,8 @@ client.once(Events.ClientReady, async (c) => {
   await c.user.setUsername('Esgoto do WvW').catch(() => {});
 });
 
-client.on(Events.GuildMemberAdd, (member) => {
-  handleGuildMemberAdd(member).catch(console.error);
+client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
+  handleGuildMemberUpdate(oldMember, newMember).catch(console.error);
 });
 
 client.on(Events.MessageCreate, (message) => {

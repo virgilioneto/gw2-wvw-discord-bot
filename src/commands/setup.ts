@@ -18,6 +18,8 @@ import { getGuildMembers } from '../services/gw2GuildMembers';
 
 const MODAL_ID = 'setup_modal';
 const SETUP_CHANNEL_SELECT_ID = 'setup_notify_channel';
+const SETUP_BASE_ROLE_SELECT_ID = 'setup_base_role';
+const SETUP_WVW_ROLE_SELECT_ID = 'setup_wvw_role';
 const INPUT_GUILD_NAME = 'setup_guild_name';
 const INPUT_API_KEY = 'setup_api_key';
 
@@ -25,6 +27,10 @@ const MAX_SELECT_OPTIONS = 25;
 
 /** Armazena canal de notificação escolhido antes de abrir o modal: key = guildId:userId */
 const pendingNotifyChannel = new Map<string, string>();
+/** Armazena role base escolhida antes de abrir o modal: key = guildId:userId */
+const pendingBaseRole = new Map<string, string>();
+/** Armazena role WvW escolhida antes de abrir o modal: key = guildId:userId */
+const pendingWvwRole = new Map<string, string>();
 
 export const setupCommand = new SlashCommandBuilder()
   .setName('setup')
@@ -56,6 +62,44 @@ function buildSetupModal(title: string, guildName: string, apiKeyPlaceholder: st
   const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput);
   modal.addComponents(row1, row2);
   return modal;
+}
+
+/** Retorna opções de roles do servidor (exclui @everyone), no máximo MAX_SELECT_OPTIONS. */
+function getGuildRoleOptions(
+  discordGuild: { id: string; roles: { cache: Map<string, { id: string; name: string }> } },
+  currentValue?: string
+) {
+  const roles = Array.from(discordGuild.roles.cache.values())
+    .filter((r) => r.id !== discordGuild.id)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+    .slice(0, MAX_SELECT_OPTIONS);
+  return roles.map((r) => ({
+    label: r.name ?? r.id,
+    value: r.id,
+    description: r.id === currentValue ? 'Selecionado atualmente' : undefined,
+  }));
+}
+
+/** Monta a mensagem com os dois dropdowns de roles (base e WvW). */
+function buildRoleSelectRows(
+  discordGuild: { id: string; roles: { cache: Map<string, { id: string; name: string }> } },
+  currentBaseRoleId?: string,
+  currentWvwRoleId?: string
+) {
+  const baseOptions = getGuildRoleOptions(discordGuild, currentBaseRoleId);
+  const wvwOptions = getGuildRoleOptions(discordGuild, currentWvwRoleId);
+  const baseMenu = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_BASE_ROLE_SELECT_ID)
+    .setPlaceholder('Role base do usuário no Discord')
+    .addOptions([{ label: 'Nenhuma', value: '__none__', description: 'Não atribuir role base' }, ...baseOptions].slice(0, MAX_SELECT_OPTIONS));
+  const wvwMenu = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_WVW_ROLE_SELECT_ID)
+    .setPlaceholder('Role do jogador de WvW')
+    .addOptions([{ label: 'Nenhuma', value: '__none__', description: 'Não atribuir role WvW' }, ...wvwOptions].slice(0, MAX_SELECT_OPTIONS));
+  return [
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(baseMenu),
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(wvwMenu),
+  ];
 }
 
 export async function handleSetupCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -92,12 +136,17 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
 
   if (channelList.length === 0) {
     const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
-    const modal = buildSetupModal(
-      existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
-      existing?.name ?? '',
-      existing?.api_key ? '••••••••' : ''
+    const rows = buildRoleSelectRows(
+      guild,
+      existing?.base_discord_role || undefined,
+      existing?.wvw_discord_role || undefined
     );
-    await interaction.showModal(modal);
+    await interaction.reply({
+      content:
+        '**Configurar guilda** — Selecione a **role base do usuário** e a **role do jogador de WvW**. Em seguida, preencha o formulário com o nome da guilda e a chave de API.',
+      components: rows,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -117,7 +166,8 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
   await interaction.reply({
-    content: '**Configurar guilda** — Selecione o canal onde as notificações devem ser enviadas. Em seguida, preencha o formulário com o nome da guilda e a chave de API.',
+    content:
+      '**Configurar guilda** — Selecione o canal onde as notificações devem ser enviadas. Em seguida, escolha as roles e preencha o formulário com o nome da guilda e a chave de API.',
     components: [row],
     ephemeral: true,
   });
@@ -184,6 +234,8 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
 
   const pendingKey = `${discordServerId}:${interaction.user.id}`;
   const notifyChannelId = pendingNotifyChannel.get(pendingKey) ?? '';
+  const baseDiscordRole = pendingBaseRole.get(pendingKey) ?? '';
+  const wvwDiscordRole = pendingWvwRole.get(pendingKey) ?? '';
 
   await Guild.findOneAndUpdate(
     { discord_server_id: discordServerId },
@@ -194,12 +246,16 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
         name: guildName,
         api_key: apiKey,
         ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
+        base_discord_role: baseDiscordRole,
+        wvw_discord_role: wvwDiscordRole,
       },
     },
     { upsert: true, new: true }
   ).exec();
 
   pendingNotifyChannel.delete(pendingKey);
+  pendingBaseRole.delete(pendingKey);
+  pendingWvwRole.delete(pendingKey);
 
   for (const m of membersResult.members) {
     const joinedAt = m.joined ? new Date(m.joined) : new Date();
@@ -263,11 +319,122 @@ export async function handleSetupChannelSelect(interaction: StringSelectMenuInte
   pendingNotifyChannel.set(`${discordServerId}:${interaction.user.id}`, channelId);
 
   const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const rows = buildRoleSelectRows(
+    interaction.guild!,
+    existing?.base_discord_role || undefined,
+    existing?.wvw_discord_role || undefined
+  );
+
+  await interaction.update({
+    content:
+      '**Configurar guilda** — Selecione a **role base do usuário** e a **role do jogador de WvW**. Depois, preencha o formulário com o nome da guilda e a chave de API.',
+    components: rows,
+  });
+}
+
+function getPendingKey(interaction: StringSelectMenuInteraction): string {
+  const discordServerId = interaction.guildId;
+  return discordServerId ? `${discordServerId}:${interaction.user.id}` : '';
+}
+
+async function tryShowSetupModalAfterRoles(interaction: StringSelectMenuInteraction): Promise<boolean> {
+  const key = getPendingKey(interaction);
+  if (!key || !interaction.guild) return false;
+  const baseId = pendingBaseRole.get(key);
+  const wvwId = pendingWvwRole.get(key);
+  if (baseId === undefined || wvwId === undefined) return false;
+  const existing = await Guild.findOne({ discord_server_id: interaction.guildId }).exec();
   const modal = buildSetupModal(
     existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
     existing?.name ?? '',
     existing?.api_key ? '••••••••' : ''
   );
-
   await interaction.showModal(modal);
+  return true;
+}
+
+export async function handleSetupBaseRoleSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (interaction.customId !== SETUP_BASE_ROLE_SELECT_ID) return;
+
+  const discordServerId = interaction.guildId;
+  if (!discordServerId) {
+    await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const permissions = interaction.memberPermissions;
+  const allowed =
+    permissions?.has(PermissionFlagsBits.ManageRoles) ||
+    permissions?.has(PermissionFlagsBits.ManageChannels) ||
+    permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    permissions?.has(PermissionFlagsBits.Administrator);
+  if (!allowed) {
+    await interaction
+      .reply({
+        content:
+          'Você precisa de uma destas permissões no servidor: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+        ephemeral: true,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const value = interaction.values[0];
+  pendingBaseRole.set(`${discordServerId}:${interaction.user.id}`, value === '__none__' ? '' : value);
+
+  if (await tryShowSetupModalAfterRoles(interaction)) return;
+
+  const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const rows = buildRoleSelectRows(
+    interaction.guild!,
+    value === '__none__' ? '' : value,
+    existing?.wvw_discord_role || undefined
+  );
+  await interaction.update({
+    content: '**Configurar guilda** — Role base selecionada. Selecione a **role do jogador de WvW** e depois preencha o formulário.',
+    components: rows,
+  });
+}
+
+export async function handleSetupWvwRoleSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (interaction.customId !== SETUP_WVW_ROLE_SELECT_ID) return;
+
+  const discordServerId = interaction.guildId;
+  if (!discordServerId) {
+    await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const permissions = interaction.memberPermissions;
+  const allowed =
+    permissions?.has(PermissionFlagsBits.ManageRoles) ||
+    permissions?.has(PermissionFlagsBits.ManageChannels) ||
+    permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    permissions?.has(PermissionFlagsBits.Administrator);
+  if (!allowed) {
+    await interaction
+      .reply({
+        content:
+          'Você precisa de uma destas permissões no servidor: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+        ephemeral: true,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const value = interaction.values[0];
+  pendingWvwRole.set(`${discordServerId}:${interaction.user.id}`, value === '__none__' ? '' : value);
+
+  if (await tryShowSetupModalAfterRoles(interaction)) return;
+
+  const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const rows = buildRoleSelectRows(
+    interaction.guild!,
+    existing?.base_discord_role || undefined,
+    value === '__none__' ? '' : value
+  );
+  await interaction.update({
+    content: '**Configurar guilda** — Role WvW selecionada. Selecione a **role base do usuário** e depois preencha o formulário.',
+    components: rows,
+  });
 }

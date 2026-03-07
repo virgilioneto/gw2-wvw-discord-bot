@@ -22,6 +22,7 @@ const SETUP_BASE_ROLE_SELECT_ID = 'setup_base_role';
 const SETUP_WVW_ROLE_SELECT_ID = 'setup_wvw_role';
 const INPUT_GUILD_NAME = 'setup_guild_name';
 const INPUT_API_KEY = 'setup_api_key';
+const INPUT_DM_NOTIFY = 'setup_dm_notify';
 
 const MAX_SELECT_OPTIONS = 25;
 
@@ -37,7 +38,7 @@ export const setupCommand = new SlashCommandBuilder()
   .setDescription('Configura o nome da guilda e a chave de API do Guild Wars 2 para este servidor.')
   .toJSON();
 
-function buildSetupModal(title: string, guildName: string, apiKeyPlaceholder: string) {
+function buildSetupModal(title: string, guildName: string, apiKeyPlaceholder: string, dmNotifyPlayer: boolean = true) {
   const modal = new ModalBuilder().setCustomId(MODAL_ID).setTitle(title);
 
   const nameInput = new TextInputBuilder()
@@ -58,9 +59,19 @@ function buildSetupModal(title: string, guildName: string, apiKeyPlaceholder: st
     .setMaxLength(128);
   if (!apiKeyPlaceholder) keyInput.setMinLength(64);
 
+  const dmNotifyInput = new TextInputBuilder()
+    .setCustomId(INPUT_DM_NOTIFY)
+    .setLabel('Notificar Jogador via DM')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('sim ou não')
+    .setRequired(false)
+    .setMaxLength(10);
+  dmNotifyInput.setValue(dmNotifyPlayer ? 'sim' : 'não');
+
   const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput);
   const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput);
-  modal.addComponents(row1, row2);
+  const row3 = new ActionRowBuilder<TextInputBuilder>().addComponents(dmNotifyInput);
+  modal.addComponents(row1, row2, row3);
   return modal;
 }
 
@@ -202,6 +213,14 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   const guildName = interaction.fields.getTextInputValue(INPUT_GUILD_NAME).trim();
   let apiKey = interaction.fields.getTextInputValue(INPUT_API_KEY).trim();
 
+  let dmNotifyPlayer = true;
+  try {
+    const dmNotifyRaw = interaction.fields.getTextInputValue(INPUT_DM_NOTIFY)?.trim().toLowerCase() ?? 'sim';
+    dmNotifyPlayer = /^(sim|s|yes|true|1)$/i.test(dmNotifyRaw);
+  } catch {
+    // Modal antigo sem o campo: mantém true
+  }
+
   const existingGuild = await Guild.findOne({ discord_server_id: discordServerId }).exec();
   if (existingGuild && !apiKey) {
     apiKey = existingGuild.api_key;
@@ -248,6 +267,7 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
         ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
         base_discord_role: baseDiscordRole,
         wvw_discord_role: wvwDiscordRole,
+        dm_notify_player: dmNotifyPlayer,
       },
     },
     { upsert: true, new: true }
@@ -347,7 +367,8 @@ async function tryShowSetupModalAfterRoles(interaction: StringSelectMenuInteract
   const modal = buildSetupModal(
     existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
     existing?.name ?? '',
-    existing?.api_key ? '••••••••' : ''
+    existing?.api_key ? '••••••••' : '',
+    existing?.dm_notify_player ?? true
   );
   await interaction.showModal(modal);
   return true;

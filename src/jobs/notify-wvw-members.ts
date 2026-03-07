@@ -140,25 +140,29 @@ async function run(): Promise<void> {
       }
     }
 
-    console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. Enviando DMs...`);
+    if (guild.dm_notify_player) {
+      console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. Enviando DMs...`);
 
-    for (const member of members) {
-      try {
-        const user = await client.users.fetch(member.discord_user);
-        const dm = await user.createDM();
-        await dm.send(
-          `**Esgoto do WvW** — Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
-        );
-        totalSent++;
-        process.stdout.write('.');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        totalSkipped++;
-        errors.push({ guildName: guild.name, userId: member.discord_user, error: msg });
-        process.stdout.write('x');
+      for (const member of members) {
+        try {
+          const user = await client.users.fetch(member.discord_user);
+          const dm = await user.createDM();
+          await dm.send(
+            `**Esgoto do WvW** — Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
+          );
+          totalSent++;
+          process.stdout.write('.');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          totalSkipped++;
+          errors.push({ guildName: guild.name, userId: member.discord_user, error: msg });
+          process.stdout.write('x');
+        }
       }
+      if (members.length > 0) console.log('');
+    } else {
+      console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. DM desativada para esta guilda.`);
     }
-    if (members.length > 0) console.log('');
   }
 
   console.log('\n--- Resumo ---');

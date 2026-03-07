@@ -8,6 +8,7 @@ export interface IGuild extends Document {
   notify_channel: string;
   base_discord_role: string;
   wvw_discord_role: string;
+  dm_notify_player: boolean;
 }
 
 const GuildSchema: Schema = new Schema({
@@ -18,6 +19,7 @@ const GuildSchema: Schema = new Schema({
   notify_channel: { type: String, default: '' },
   base_discord_role: { type: String, default: '' },
   wvw_discord_role: { type: String, default: '' },
+  dm_notify_player: { type: Boolean, default: false },
 });
 
 export const Guild: Model<IGuild> = mongoose.model<IGuild>('Guild', GuildSchema);

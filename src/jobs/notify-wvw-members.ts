@@ -3,6 +3,9 @@
  * Se a guilda tiver notify_channel: envia uma mensagem no canal marcando todos os usuários.
  * Caso contrário: envia DM para cada usuário.
  *
+ * Executa apenas no sábado e na segunda-feira que antecedem a primeira sexta-feira do mês.
+ * Em qualquer outra data, o job termina sem fazer nada.
+ *
  * Uso: npm run job:notify-wvw
  */
 import 'dotenv/config';
@@ -23,7 +26,60 @@ const client = new Client({
   intents: [GatewayIntentBits.DirectMessages, GatewayIntentBits.Guilds],
 });
 
+/** Dia do mês (1-31) da primeira sexta-feira do mês. */
+function getFirstFridayDayOfMonth(year: number, month: number): Date {
+// Create a Date object for the first day of the specified month
+    // JavaScript months are 0-indexed (0=Jan, 11=Dec), so 'month' argument is used as is.
+    var firstDayOfMonth = new Date(year, month, 1);
+    
+    // Get the day of the week for the first day of the month (0=Sun, 1=Mon, ..., 6=Sat)
+    var dayOfWeek = firstDayOfMonth.getDay();
+    
+    // Friday is represented by the number 5
+    var FRIDAY = 5;
+    
+    // Calculate how many days to advance from the first of the month to the first Friday
+    var daysUntilFirstFriday;
+    if (dayOfWeek <= FRIDAY) {
+        daysUntilFirstFriday = FRIDAY - dayOfWeek;
+    } else {
+        // If the first day is after Friday (Sat/Sun), advance to the next week's Friday
+        daysUntilFirstFriday = FRIDAY + (7 - dayOfWeek);
+    }
+    
+    // Set the date of the first day to the calculated first Friday
+    firstDayOfMonth.setDate(firstDayOfMonth.getDate() + daysUntilFirstFriday);
+    
+    return firstDayOfMonth;
+}
+
+/** Verifica se hoje é sábado ou segunda que antecedem a primeira sexta do mês. */
+function shouldRunToday(): boolean {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  const dayOfWeek = now.getDay(); // 0=Dom, 6=Sab, 1=Seg
+
+  const firstFriday = getFirstFridayDayOfMonth(year, month);
+  const saturdayBefore = firstFriday.getDate() - 6;
+  const mondayBefore = firstFriday.getDate() - 4;
+
+  const isSaturdayRun = dayOfWeek === 6 && day === saturdayBefore && saturdayBefore >= 1;
+  const isMondayRun = dayOfWeek === 1 && day === mondayBefore && mondayBefore >= 1;
+
+  return isSaturdayRun || isMondayRun;
+}
+
 async function run(): Promise<void> {
+  if (!shouldRunToday()) {
+    const now = new Date();
+    console.log(
+      `[${now.toISOString().slice(0, 10)}] Job não agendado para hoje. Executa apenas no sábado e na segunda antes da primeira sexta do mês.`
+    );
+    process.exit(0);
+  }
+
   console.log('Conectando ao MongoDB...');
   await mongoose.connect(MONGODB_URI);
   console.log('Conectado.\n');

@@ -9,6 +9,7 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   ChannelType,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { GuildMember } from '../models/GuildMember';
@@ -70,6 +71,21 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
     return;
   }
 
+  const permissions = interaction.memberPermissions;
+  const allowed =
+    permissions?.has(PermissionFlagsBits.ManageRoles) ||
+    permissions?.has(PermissionFlagsBits.ManageChannels) ||
+    permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    permissions?.has(PermissionFlagsBits.Administrator);
+  if (!allowed) {
+    await interaction.reply({
+      content:
+        'Você precisa de uma destas permissões no servidor para usar este comando: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   const textChannelTypes = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
   const channels = guild.channels.cache.filter((c) => textChannelTypes.includes(c.type as ChannelType));
   const channelList = Array.from(channels.values()).slice(0, MAX_SELECT_OPTIONS);
@@ -113,6 +129,21 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   const discordServerId = interaction.guildId;
   if (!discordServerId) {
     await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true });
+    return;
+  }
+
+  const permissions = interaction.memberPermissions;
+  const allowed =
+    permissions?.has(PermissionFlagsBits.ManageRoles) ||
+    permissions?.has(PermissionFlagsBits.ManageChannels) ||
+    permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    permissions?.has(PermissionFlagsBits.Administrator);
+  if (!allowed) {
+    await interaction.reply({
+      content:
+        'Você precisa de uma destas permissões no servidor para usar o setup: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -205,6 +236,21 @@ export async function handleSetupChannelSelect(interaction: StringSelectMenuInte
   const discordServerId = interaction.guildId;
   if (!discordServerId) {
     await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const permissions = interaction.memberPermissions;
+  const allowed =
+    permissions?.has(PermissionFlagsBits.ManageRoles) ||
+    permissions?.has(PermissionFlagsBits.ManageChannels) ||
+    permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    permissions?.has(PermissionFlagsBits.Administrator);
+  if (!allowed) {
+    await interaction.reply({
+      content:
+        'Você precisa de uma destas permissões no servidor: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      ephemeral: true,
+    }).catch(() => {});
     return;
   }
 

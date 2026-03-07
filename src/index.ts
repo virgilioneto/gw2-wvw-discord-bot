@@ -12,7 +12,7 @@ import { connectDatabase } from './database/connection';
 import { handleGuildMemberAdd } from './events/guildMemberAdd';
 import { handleDirectMessage } from './events/messageCreate';
 import { joinCommand, handleJoinCommand, handleJoinModalSubmit } from './commands/join';
-import { setupCommand, handleSetupCommand, handleSetupModalSubmit } from './commands/setup';
+import { setupCommand, handleSetupCommand, handleSetupModalSubmit, handleSetupChannelSelect } from './commands/setup';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
@@ -64,6 +64,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleSetupModalSubmit(interaction);
       return;
     }
+  }
+  if (interaction.isStringSelectMenu() && interaction.customId === 'setup_notify_channel') {
+    await handleSetupChannelSelect(interaction);
   }
 });
 

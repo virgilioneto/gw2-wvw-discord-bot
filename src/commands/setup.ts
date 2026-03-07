@@ -6,6 +6,9 @@ import {
   ActionRowBuilder,
   ChatInputCommandInteraction,
   ModalSubmitInteraction,
+  StringSelectMenuBuilder,
+  StringSelectMenuInteraction,
+  ChannelType,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { GuildMember } from '../models/GuildMember';
@@ -13,8 +16,14 @@ import { searchGuildByName } from '../services/gw2Api';
 import { getGuildMembers } from '../services/gw2GuildMembers';
 
 const MODAL_ID = 'setup_modal';
+const SETUP_CHANNEL_SELECT_ID = 'setup_notify_channel';
 const INPUT_GUILD_NAME = 'setup_guild_name';
 const INPUT_API_KEY = 'setup_api_key';
+
+const MAX_SELECT_OPTIONS = 25;
+
+/** Armazena canal de notificação escolhido antes de abrir o modal: key = guildId:userId */
+const pendingNotifyChannel = new Map<string, string>();
 
 export const setupCommand = new SlashCommandBuilder()
   .setName('setup')
@@ -55,16 +64,47 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
     return;
   }
 
-  const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
-  const guildName = existing?.name ?? '';
-  const apiKeyPlaceholder = existing?.api_key ? '••••••••' : '';
+  const guild = interaction.guild;
+  if (!guild) {
+    await interaction.reply({ content: 'Servidor não disponível.', ephemeral: true });
+    return;
+  }
 
-  const modal = buildSetupModal(
-    existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
-    guildName,
-    apiKeyPlaceholder
-  );
-  await interaction.showModal(modal);
+  const textChannelTypes = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
+  const channels = guild.channels.cache.filter((c) => textChannelTypes.includes(c.type as ChannelType));
+  const channelList = Array.from(channels.values()).slice(0, MAX_SELECT_OPTIONS);
+
+  if (channelList.length === 0) {
+    const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+    const modal = buildSetupModal(
+      existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
+      existing?.name ?? '',
+      existing?.api_key ? '••••••••' : ''
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const currentNotifyChannelId = existing?.notify_channel ?? '';
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_CHANNEL_SELECT_ID)
+    .setPlaceholder('Selecione o canal para notificações')
+    .addOptions(
+      channelList.map((ch) => ({
+        label: ch.name ?? ch.id,
+        value: ch.id,
+        description: ch.id === currentNotifyChannelId ? 'Canal atual de notificações' : undefined,
+      }))
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+  await interaction.reply({
+    content: '**Configurar guilda** — Selecione o canal onde as notificações devem ser enviadas. Em seguida, preencha o formulário com o nome da guilda e a chave de API.',
+    components: [row],
+    ephemeral: true,
+  });
 }
 
 export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
@@ -111,6 +151,9 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
 
   const guildId = guildIdFromSearch;
 
+  const pendingKey = `${discordServerId}:${interaction.user.id}`;
+  const notifyChannelId = pendingNotifyChannel.get(pendingKey) ?? '';
+
   await Guild.findOneAndUpdate(
     { discord_server_id: discordServerId },
     {
@@ -119,10 +162,13 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
         discord_server_id: discordServerId,
         name: guildName,
         api_key: apiKey,
+        ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
       },
     },
     { upsert: true, new: true }
   ).exec();
+
+  pendingNotifyChannel.delete(pendingKey);
 
   for (const m of membersResult.members) {
     const joinedAt = m.joined ? new Date(m.joined) : new Date();
@@ -143,7 +189,39 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
     ).exec();
   }
 
+  const channelInfo = notifyChannelId && interaction.guild
+    ? interaction.guild.channels.cache.get(notifyChannelId)?.name
+    : null;
+  const channelText = channelInfo ? ` Canal de notificações: **#${channelInfo}**.` : '';
+
   await interaction.editReply({
-    content: `Guilda **${guildName}** configurada com sucesso. ${membersResult.members.length} membro(s) sincronizado(s).`,
+    content: `Guilda **${guildName}** configurada com sucesso. ${membersResult.members.length} membro(s) sincronizado(s).${channelText}`,
   });
+}
+
+export async function handleSetupChannelSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (interaction.customId !== SETUP_CHANNEL_SELECT_ID) return;
+
+  const discordServerId = interaction.guildId;
+  if (!discordServerId) {
+    await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const channelId = interaction.values[0];
+  if (!channelId) {
+    await interaction.reply({ content: 'Nenhum canal selecionado.', ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  pendingNotifyChannel.set(`${discordServerId}:${interaction.user.id}`, channelId);
+
+  const existing = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const modal = buildSetupModal(
+    existing ? 'Atualizar configuração da guilda' : 'Configurar guilda (Esgoto do WvW)',
+    existing?.name ?? '',
+    existing?.api_key ? '••••••••' : ''
+  );
+
+  await interaction.showModal(modal);
 }

@@ -65,49 +65,67 @@ export async function handleJoinCommand(interaction: ChatInputCommandInteraction
 }
 
 export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
-  if (interaction.customId !== MODAL_ID) return;
+  try {
+    if (interaction.customId !== MODAL_ID) return;
 
-  const discordServerId = interaction.guildId;
-  if (!discordServerId) {
-    await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true });
-    return;
-  }
+    const discordServerId = interaction.guildId;
+    if (!discordServerId) {
+      await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true });
+      return;
+    }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
-  if (!guildDoc) {
-    await interaction.reply({ content: 'Guilda não encontrada para este servidor.', ephemeral: true });
-    return;
-  }
+    const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+    if (!guildDoc) {
+      await interaction.reply({ content: 'Guilda não encontrada para este servidor.', ephemeral: true });
+      return;
+    }
 
-  const gameId = interaction.fields.getTextInputValue(INPUT_GAME_ID).trim();
-  if (!gameId) {
-    await interaction.reply({ content: 'Informe um ID de jogo válido.', ephemeral: true });
-    return;
-  }
+    const gameId = interaction.fields.getTextInputValue(INPUT_GAME_ID).trim();
+    if (!gameId) {
+      await interaction.reply({ content: 'Informe um ID de jogo válido.', ephemeral: true });
+      return;
+    }
 
-  const member = interaction.guild?.members.resolve(interaction.user.id) ?? (await interaction.guild?.members.fetch(interaction.user.id).catch(() => null));
-  const hasBaseRole = !!guildDoc.base_discord_role && (member?.roles.cache.has(guildDoc.base_discord_role) ?? false);
-  const hasWvwRole = !!guildDoc.wvw_discord_role && (member?.roles.cache.has(guildDoc.wvw_discord_role) ?? false);
+    const member = interaction.guild?.members.resolve(interaction.user.id) ?? (await interaction.guild?.members.fetch(interaction.user.id).catch(() => null));
+    const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
+    const memberRoles = guildRoleIds.filter((roleId) => member?.roles.cache.has(roleId) ?? false);
 
-  // Desvincula este usuário de qualquer outro account_id nesta guilda
-  await GuildMember.updateMany(
-    { guild_id: guildDoc.guild_id, discord_user: interaction.user.id },
-    { $set: { discord_user: '' } }
-  ).exec();
+    const existingDiscordUser = await GuildMember.findOne({ guild_id: guildDoc.guild_id, discord_user: interaction.user.id }).exec();
+    if (existingDiscordUser) {
+      await interaction.reply({ content: `Você já está vinculado a outro ID de jogo (${existingDiscordUser.account_id}).`, ephemeral: true });
+      return;
+    }
+    const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
 
-  await GuildMember.findOneAndUpdate(
-    { guild_id: guildDoc.guild_id, account_id: gameId },
-    {
-      $set: {
-        discord_user: interaction.user.id,
-        status: 'PENDING',
-        joined_at: new Date(),
-        base_discord_role: hasBaseRole,
-        wvw_discord_role: hasWvwRole,
+    if (existingMember?.discord_user && existingMember.discord_user !== interaction.user.id) {
+      await interaction.reply({ content: 'ID do jogo já está vinculado a outro usuário.', ephemeral: true });
+      return
+    }
+    if (existingMember?.status === 'CONFIRMED') {
+      await interaction.reply({ content: 'ID do jogo já está confirmado.', ephemeral: true });
+      return;
+    }
+
+    let status = 'PENDING_GUILD_DATA'
+    if (existingMember) {
+      status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
+    }
+    await GuildMember.findOneAndUpdate(
+      { guild_id: guildDoc.guild_id, account_id: gameId },
+      {
+        $set: {
+          discord_user: interaction.user.id,
+          status,
+          roles: memberRoles,
+        },
       },
-    },
-    { upsert: true, new: true }
-  ).exec();
+      { upsert: true, new: true }
+    ).exec();
 
-  await interaction.reply({ content: 'Seu ID de jogo foi registrado/atualizado com sucesso. Status: **PENDING**.', ephemeral: true });
+    await interaction.reply({ content: `Seu ID de jogo foi registrado/atualizado com sucesso. Status: **${status}**.`, ephemeral: true });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: 'Ocorreu um erro ao processar o ID de jogo.', ephemeral: true });
+    return;
+  }
 }

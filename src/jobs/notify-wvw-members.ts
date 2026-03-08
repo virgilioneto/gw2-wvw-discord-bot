@@ -98,15 +98,17 @@ async function run(): Promise<void> {
   const errors: { guildName: string; userId: string; error: string }[] = [];
 
   for (const guild of guilds) {
+    // Membros que têm pelo menos uma role em comum com as roles da guilda (intersect)
+    const guildRoleIds = Array.isArray(guild.roles) ? guild.roles : [];
     const members = await GuildMember.find({
       guild_id: guild.guild_id,
       discord_user: { $ne: '' },
       wvw_member: false,
-      $or: [{ base_discord_role: true }, { wvw_discord_role: true }],
+      roles: { $in: guildRoleIds },
     }).exec();
 
     if (members.length === 0) {
-      console.log(`[${guild.name}] Nenhum membro com wvw_member=false, Discord vinculado e role base ou WvW.`);
+      console.log(`[${guild.name}] Nenhum membro com wvw_member=false, Discord vinculado e com alguma das roles da guilda.`);
       continue;
     }
 

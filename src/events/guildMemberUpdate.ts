@@ -3,7 +3,7 @@ import { Guild } from '../models/Guild';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 
 /**
- * Envia DM quando o usuário recebe a role base (base_discord_role) do servidor,
+ * Envia DM quando o usuário recebe uma das roles configuradas da guilda no servidor,
  * pedindo o ID de jogo para vincular à guilda.
  */
 export async function handleGuildMemberUpdate(
@@ -14,14 +14,15 @@ export async function handleGuildMemberUpdate(
   if (!discordServerId) return;
 
   const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
-  if (!guildDoc?.base_discord_role) return;
+  const guildRoleIds = Array.isArray(guildDoc?.roles) ? guildDoc?.roles : [];
+  if (guildRoleIds.length === 0) return;
 
-  const baseRoleId = guildDoc.base_discord_role;
-  const hasBaseRoleNow = newMember.roles.cache.has(baseRoleId);
-  if (!hasBaseRoleNow) return;
-
-  const hadBaseRoleBefore = oldMember.roles?.cache?.has(baseRoleId) ?? false;
-  if (hadBaseRoleBefore) return;
+  const gainedRoleId = guildRoleIds.find((roleId) => {
+    const hasNow = newMember.roles.cache.has(roleId);
+    const hadBefore = oldMember.roles?.cache?.has(roleId) ?? false;
+    return hasNow && !hadBefore;
+  });
+  if (!gainedRoleId) return;
 
   try {
     const dm = await newMember.createDM();

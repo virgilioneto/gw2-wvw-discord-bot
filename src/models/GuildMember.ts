@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
-export type GuildMemberStatus = 'PENDING' | 'CONFIRMED';
+export type GuildMemberStatus = 'PENDING_GUILD_DATA' | 'PENDING_DISCORD_DATA' | 'CONFIRMED';
 
 export interface IGuildMember extends Document {
   account_id: string;
@@ -9,19 +9,17 @@ export interface IGuildMember extends Document {
   wvw_member: boolean;
   joined_at: Date;
   status: GuildMemberStatus;
-  base_discord_role: boolean;
-  wvw_discord_role: boolean;
+  roles: string[];
 }
 
 const GuildMemberSchema: Schema = new Schema({
   account_id: { type: String, required: true },
-  discord_user: { type: String, required: true },
+  discord_user: { type: String, required: false },
   guild_id: { type: String, required: true },
   wvw_member: { type: Boolean, default: false },
-  joined_at: { type: Date, default: Date.now },
-  status: { type: String, enum: ['PENDING', 'CONFIRMED'], default: 'PENDING' },
-  base_discord_role: { type: Boolean, default: false },
-  wvw_discord_role: { type: Boolean, default: false },
+  joined_at: { type: Date },
+  status: { type: String, enum: ['PENDING_GUILD_DATA', 'PENDING_DISCORD_DATA', 'CONFIRMED'] },
+  roles: { type: [String], default: [] },
 });
 
 // Índice composto para upsert por guild_id + account_id

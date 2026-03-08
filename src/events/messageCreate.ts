@@ -23,20 +23,27 @@ export async function handleDirectMessage(message: Message): Promise<void> {
       pendingGameIdByUser.delete(message.author.id);
       return;
     }
+    const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
 
+    let status = 'PENDING_GUILD_DATA'
+    if (existingMember) {
+      status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
+    }
+    const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
+    const memberRoles = guildRoleIds.filter((roleId) => message.member?.roles.cache.has(roleId) ?? false);
     await GuildMember.findOneAndUpdate(
       { guild_id: guildDoc.guild_id, account_id: gameId },
       {
         $set: {
           discord_user: message.author.id,
-          status: 'PENDING',
-          joined_at: new Date(),
+          status,
+          roles: memberRoles,
         },
       },
       { upsert: true, new: true }
     ).exec();
 
     pendingGameIdByUser.delete(message.author.id);
-    await message.reply("Seu ID de jogo foi registrado com sucesso. Status: **PENDING**.");
+    await message.reply(`Seu ID de jogo foi registrado com sucesso. Status: **${status}**.`);
   }
 }

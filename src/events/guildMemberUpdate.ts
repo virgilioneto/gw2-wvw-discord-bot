@@ -1,5 +1,6 @@
 import { GuildMember, PartialGuildMember } from 'discord.js';
 import { Guild } from '../models/Guild';
+import { GuildMember as GuildMemberModel } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 
 /**
@@ -14,8 +15,13 @@ export async function handleGuildMemberUpdate(
   if (!discordServerId) return;
 
   const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  if (!guildDoc) return;
+
   const guildRoleIds = Array.isArray(guildDoc?.roles) ? guildDoc?.roles : [];
   if (guildRoleIds.length === 0) return;
+
+  const existingDiscordUser = await GuildMemberModel.findOne({ guild_id: guildDoc.guild_id, discord_user: newMember.id }).exec();
+  if (existingDiscordUser) return;
 
   const gainedRoleId = guildRoleIds.find((roleId) => {
     const hasNow = newMember.roles.cache.has(roleId);
@@ -27,7 +33,7 @@ export async function handleGuildMemberUpdate(
   try {
     const dm = await newMember.createDM();
     await dm.send(
-      "**Esgoto do WvW** — Olá! Este servidor está vinculado a uma guilda do Guild Wars 2. Por favor, informe seu **ID de jogo** (ex.: SeuNome.1234) por aqui para que possamos te reconhecer."
+      `Olá ${newMember.displayName}! Para poder jogar com a **${guildDoc?.name}**, informe seu ID de jogo (ex.: SeuNome.1234) por aqui.`
     );
     pendingGameIdByUser.set(newMember.id, discordServerId);
   } catch {

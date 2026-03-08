@@ -102,7 +102,7 @@ async function run(): Promise<void> {
     const guildRoleIds = Array.isArray(guild.roles) ? guild.roles : [];
     const members = await GuildMember.find({
       guild_id: guild.guild_id,
-      discord_user: { $ne: '' },
+      status: 'CONFIRMED',
       wvw_member: false,
       roles: { $in: guildRoleIds },
     }).exec();

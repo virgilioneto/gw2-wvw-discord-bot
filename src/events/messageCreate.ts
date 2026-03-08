@@ -1,7 +1,8 @@
 import { Message } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember } from '../models/GuildMember';
+import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
+import { getStatusLabel } from '../constants/statusLabels';
 
 /** GW2 account names look like "Name.1234" */
 const GAME_ID_REGEX = /^[\w\s.-]+\.\d{4}$/i;
@@ -25,7 +26,7 @@ export async function handleDirectMessage(message: Message): Promise<void> {
     }
     const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
 
-    let status = 'PENDING_GUILD_DATA'
+    let status: GuildMemberStatus = 'PENDING_GUILD_DATA'
     if (existingMember) {
       status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
     }
@@ -44,6 +45,6 @@ export async function handleDirectMessage(message: Message): Promise<void> {
     ).exec();
 
     pendingGameIdByUser.delete(message.author.id);
-    await message.reply(`Seu ID de jogo foi registrado com sucesso. Status: **${status}**.`);
+    await message.reply(`Seu ID de jogo foi registrado com sucesso. Status: **${getStatusLabel(status)}**.`);
   }
 }

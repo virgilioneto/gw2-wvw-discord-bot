@@ -122,7 +122,7 @@ async function run(): Promise<void> {
         const channel = discordGuild.channels.cache.get(guild.notify_channel) ?? await discordGuild.channels.fetch(guild.notify_channel).catch(() => null);
         if (channel && 'send' in channel) {
           const mentions = members.map((m) => `<@${m.discord_user}>`).join(' ');
-          const text = `**Esgoto do WvW** — A guilda **${guild.name}** não foi definida como guilda de WvW por vocês no jogo. Para contar nas escalações, definam-a como sua guilda de WvW em Guild Wars 2.`;
+          const text = `A guilda **${guild.name}** não foi definida como guilda de WvW por vocês no jogo. Para contar nas escalações, definam-a como sua guilda de WvW em Guild Wars 2.`;
           const fullContent = `${mentions}\n\n${text}`;
           const MAX_LENGTH = 2000;
           if (fullContent.length <= MAX_LENGTH) {
@@ -150,7 +150,7 @@ async function run(): Promise<void> {
           const user = await client.users.fetch(member.discord_user);
           const dm = await user.createDM();
           await dm.send(
-            `**Esgoto do WvW** — Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
+            `Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
           );
           totalSent++;
           process.stdout.write('.');

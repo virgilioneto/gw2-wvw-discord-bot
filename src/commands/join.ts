@@ -8,7 +8,8 @@ import {
   ModalSubmitInteraction,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember } from '../models/GuildMember';
+import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
+import { getStatusLabel } from '../constants/statusLabels';
 
 const MODAL_ID = 'join_modal';
 const INPUT_GAME_ID = 'join_game_id';
@@ -106,7 +107,7 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
       return;
     }
 
-    let status = 'PENDING_GUILD_DATA'
+    let status: GuildMemberStatus = 'PENDING_GUILD_DATA'
     if (existingMember) {
       status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
     }
@@ -122,7 +123,7 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
       { upsert: true, new: true }
     ).exec();
 
-    await interaction.reply({ content: `Seu ID de jogo foi registrado/atualizado com sucesso. Status: **${status}**.`, ephemeral: true });
+    await interaction.reply({ content: `Seu ID de jogo foi registrado/atualizado com sucesso. Status: **${getStatusLabel(status)}**.`, ephemeral: true });
   } catch (error) {
     console.error(error);
     await interaction.reply({ content: 'Ocorreu um erro ao processar o ID de jogo.', ephemeral: true });

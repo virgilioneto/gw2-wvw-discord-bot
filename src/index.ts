@@ -10,6 +10,7 @@ import { handleGuildMemberUpdate } from './events/guildMemberUpdate';
 import { handleDirectMessage } from './events/messageCreate';
 import { handleJoinCommand, handleJoinModalSubmit } from './commands/join';
 import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
+import { handleSyncCommand } from './commands/sync';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
@@ -49,6 +50,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
     if (interaction.commandName === 'setup') {
       await handleSetupCommand(interaction);
+      return;
+    }
+    if (interaction.commandName === 'sync') {
+      await handleSyncCommand(interaction);
       return;
     }
   }

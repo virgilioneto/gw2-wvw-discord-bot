@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 import { joinCommand } from './commands/join';
 import { setupCommand } from './commands/setup';
+import { syncCommand } from './commands/sync';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -11,7 +12,7 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
   process.exit(1);
 }
 
-const commands = [joinCommand, setupCommand];
+const commands = [joinCommand, setupCommand, syncCommand];
 const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 async function deploy() {

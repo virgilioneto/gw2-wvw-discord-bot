@@ -5,7 +5,7 @@ import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
 
 /** GW2 account names look like "Name.1234" */
-const GAME_ID_REGEX = /^[\w\s.-]+\.\d{4}$/i;
+export const GAME_ID_REGEX = /^[\w\s.-]+\.\d{4}$/i;
 
 export async function handleDirectMessage(message: Message): Promise<void> {
   if (message.author.bot) return;

@@ -12,6 +12,7 @@ import { handleJoinCommand, handleJoinModalSubmit } from './commands/join';
 import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
 import { handleSyncCommand } from './commands/sync';
 import { handlePendingPlayersCommand } from './commands/pendingPlayers';
+import { handleManualIncludeCommand } from './commands/manualInclude';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
@@ -61,6 +62,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
     if (interaction.commandName === 'jogadores-pendente') {
       await handlePendingPlayersCommand(interaction);
+      return;
+    }
+    if (interaction.commandName === 'inclusão-manual') {
+      await handleManualIncludeCommand(interaction);
       return;
     }
   }

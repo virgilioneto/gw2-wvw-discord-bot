@@ -9,7 +9,7 @@ const SETUP_PERMISSIONS =
   PermissionFlagsBits.Administrator;
 
 export const syncCommand = new SlashCommandBuilder()
-  .setName('sync')
+  .setName('atualizar')
   .setDescription('Sincroniza os membros da guilda com a API do Guild Wars 2 (mesmo processo do job).')
   .setDefaultMemberPermissions(SETUP_PERMISSIONS)
   .toJSON();

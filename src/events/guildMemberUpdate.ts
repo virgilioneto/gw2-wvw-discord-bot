@@ -35,7 +35,7 @@ export async function handleGuildMemberUpdate(
     await dm.send(
       `Olá ${newMember.displayName}! Para poder jogar com a **${guildDoc?.name}**, informe seu ID de jogo (ex.: SeuNome.1234) por aqui.`
     );
-    pendingGameIdByUser.set(newMember.id, discordServerId);
+    pendingGameIdByUser.set(newMember.id, {discordServerId, roles: newMember.roles.cache.map((role) => role.id)});
   } catch {
     // User may have DMs disabled - ignore
   }

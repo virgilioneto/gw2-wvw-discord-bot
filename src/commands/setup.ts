@@ -33,7 +33,7 @@ const pendingNotifyChannel = new Map<string, string>();
 const pendingRoles = new Map<string, string[]>();
 
 export const setupCommand = new SlashCommandBuilder()
-  .setName('setup')
+  .setName('configurar')
   .setDescription('Configura o nome da guilda e a chave de API do Guild Wars 2 para este servidor.')
   .toJSON();
 
@@ -263,7 +263,7 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
           joined_at: joinedAt,
         },
         $setOnInsert: {
-          discord_user: '',
+          status: 'PENDING_DISCORD_DATA',
         },
       },
       { upsert: true }

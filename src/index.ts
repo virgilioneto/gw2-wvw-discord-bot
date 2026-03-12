@@ -11,6 +11,7 @@ import { handleDirectMessage } from './events/messageCreate';
 import { handleJoinCommand, handleJoinModalSubmit } from './commands/join';
 import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
 import { handleSyncCommand } from './commands/sync';
+import { handlePendingPlayersCommand } from './commands/pendingPlayers';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
@@ -44,16 +45,20 @@ client.on(Events.MessageCreate, (message) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'join') {
+    if (interaction.commandName === 'entrar') {
       await handleJoinCommand(interaction);
       return;
     }
-    if (interaction.commandName === 'setup') {
+    if (interaction.commandName === 'configurar') {
       await handleSetupCommand(interaction);
       return;
     }
-    if (interaction.commandName === 'sync') {
+    if (interaction.commandName === 'atualizar') {
       await handleSyncCommand(interaction);
+      return;
+    }
+    if (interaction.commandName === 'jogadores-pendente') {
+      await handlePendingPlayersCommand(interaction);
       return;
     }
   }

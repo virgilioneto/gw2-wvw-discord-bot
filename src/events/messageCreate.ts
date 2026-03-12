@@ -10,7 +10,7 @@ const GAME_ID_REGEX = /^[\w\s.-]+\.\d{4}$/i;
 export async function handleDirectMessage(message: Message): Promise<void> {
   if (message.author.bot) return;
   if (!message.guildId && message.channel.isDMBased()) {
-    const discordServerId = pendingGameIdByUser.get(message.author.id);
+    const {discordServerId, roles} = pendingGameIdByUser.get(message.author.id) || {};
     if (!discordServerId) return;
 
     const gameId = message.content.trim();
@@ -31,7 +31,7 @@ export async function handleDirectMessage(message: Message): Promise<void> {
       status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
     }
     const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
-    const memberRoles = guildRoleIds.filter((roleId) => message.member?.roles.cache.has(roleId) ?? false);
+    const memberRoles = guildRoleIds.filter((roleId) => roles?.includes(roleId) ?? false);
     await GuildMember.findOneAndUpdate(
       { guild_id: guildDoc.guild_id, account_id: gameId },
       {

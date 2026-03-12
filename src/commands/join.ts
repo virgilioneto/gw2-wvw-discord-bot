@@ -15,7 +15,7 @@ const MODAL_ID = 'join_modal';
 const INPUT_GAME_ID = 'join_game_id';
 
 export const joinCommand = new SlashCommandBuilder()
-  .setName('join')
+  .setName('entrar')
   .setDescription('Informe ou atualize seu ID de jogo (Guild Wars 2) para este servidor.')
   .toJSON();
 

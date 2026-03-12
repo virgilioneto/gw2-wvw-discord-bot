@@ -1,0 +1,8 @@
+services:
+  bot:
+    image: ghcr.io/virgilioneto/gw2-wvw-discord-bot:latest
+    env_file: .env
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:

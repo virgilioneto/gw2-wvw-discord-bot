@@ -19,7 +19,8 @@ import { searchGuildByName } from '../services/gw2Api';
 import { getGuildMembers } from '../services/gw2GuildMembers';
 
 const MODAL_ID = 'setup_modal';
-const SETUP_CHANNEL_SELECT_ID = 'setup_notify_channel';
+const SETUP_RECRUITMENT_CHANNEL_ID = 'setup_recruitment_channel';
+const SETUP_NOTIFY_CHANNEL_ID = 'setup_notify_channel';
 const SETUP_BASE_ROLE_SELECT_ID = 'setup_base_role';
 const INPUT_GUILD_NAME = 'setup_guild_name';
 const INPUT_API_KEY = 'setup_api_key';
@@ -72,7 +73,7 @@ function buildSetupModal(
     .setLabel("Chave da API do Guild Wars 2")
     .setTextInputComponent(keyInput);
   
-  const notifyDMSelect = new StringSelectMenuBuilder()
+  /*const notifyDMSelect = new StringSelectMenuBuilder()
     .setCustomId(INPUT_DM_NOTIFY)
     .setPlaceholder('Escolha uma opção')
     .setRequired(true)
@@ -88,12 +89,27 @@ function buildSetupModal(
 
     const notifyDMLabel = new LabelBuilder()
       .setLabel("Enviar notificação via DM?")
-      .setStringSelectMenuComponent(notifyDMSelect);
+      .setStringSelectMenuComponent(notifyDMSelect);*/
       
     const textChannelTypes = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
     const channels = interaction.guild?.channels.cache.filter((c) => textChannelTypes.includes(c.type as ChannelType)) ?? [];
-    const channelSelect = new StringSelectMenuBuilder()
-      .setCustomId(SETUP_CHANNEL_SELECT_ID)
+
+    const recroutmentChannelSelect = new StringSelectMenuBuilder()
+      .setCustomId(SETUP_RECRUITMENT_CHANNEL_ID)
+      .setPlaceholder('Selecione o canal de recrutamento')
+      .addOptions(
+        Array.from(channels.values()).map((ch) => ({
+          label: ch.name ?? ch.id,
+          value: ch.id,
+        }))
+      );
+
+    const recruitmentChannelLabel = new LabelBuilder()
+      .setLabel("Selecione o canal de recrutamento")
+      .setStringSelectMenuComponent(recroutmentChannelSelect);
+
+    const notifyChannelSelect = new StringSelectMenuBuilder()
+      .setCustomId(SETUP_NOTIFY_CHANNEL_ID)
       .setPlaceholder('Selecione o canal para notificações')
       .addOptions(
         Array.from(channels.values()).map((ch) => ({
@@ -102,9 +118,9 @@ function buildSetupModal(
         }))
       );
 
-    const channelLabel = new LabelBuilder()
+    const notifyChannelLabel = new LabelBuilder()
       .setLabel("Selecione o canal para notificações")
-      .setStringSelectMenuComponent(channelSelect);
+      .setStringSelectMenuComponent(notifyChannelSelect);
 
   const baseOptions = getGuildRoleOptions(interaction.guild!, currentRoleIds);
   const baseRoleSelect = new StringSelectMenuBuilder()
@@ -118,7 +134,7 @@ function buildSetupModal(
     .setLabel("Selecione as Roles")
     .setStringSelectMenuComponent(baseRoleSelect);
 
-  modal.addLabelComponents(nameLabel, keyLabel, notifyDMLabel, channelLabel, baseRoleLabel);
+  modal.addLabelComponents(nameLabel, keyLabel, recruitmentChannelLabel, notifyChannelLabel, baseRoleLabel);
 
   return modal;
 }
@@ -190,7 +206,8 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   const guildName = interaction.fields.getTextInputValue(INPUT_GUILD_NAME).trim();
   let apiKey = interaction.fields.getTextInputValue(INPUT_API_KEY).trim();
   let roleIds = interaction.fields.getStringSelectValues(SETUP_BASE_ROLE_SELECT_ID) ?? [];
-  let notifyChannelId = interaction.fields.getStringSelectValues(SETUP_CHANNEL_SELECT_ID)?.[0] ?? '';
+  let recruitmentChannelId = interaction.fields.getStringSelectValues(SETUP_RECRUITMENT_CHANNEL_ID)?.[0] ?? '';
+  let notifyChannelId = interaction.fields.getStringSelectValues(SETUP_NOTIFY_CHANNEL_ID)?.[0] ?? '';
 
   let dmNotifyPlayer = true;
   try {
@@ -240,6 +257,7 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
         discord_server_id: discordServerId,
         name: guildName,
         api_key: apiKey,
+        ...(recruitmentChannelId ? { recruitment_channel: recruitmentChannelId } : {}),
         ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
         roles: roleIds.filter((id) => id !== '__none__'),
         dm_notify_player: dmNotifyPlayer,
@@ -293,7 +311,7 @@ function getPendingKeyFromInteraction(interaction: { guildId: string | null; use
 export async function handleSetupSelectMenu(interaction: StringSelectMenuInteraction): Promise<boolean> {
   const key = getPendingKeyFromInteraction(interaction);
   if (!key) return false;
-  if (interaction.customId === SETUP_CHANNEL_SELECT_ID) {
+  if (interaction.customId === SETUP_NOTIFY_CHANNEL_ID) {
     const value = interaction.values[0];
     if (value) pendingNotifyChannel.set(key, value);
     await interaction.deferUpdate().catch(() => {});

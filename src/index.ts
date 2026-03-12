@@ -7,7 +7,7 @@ import {
 } from 'discord.js';
 import { connectDatabase } from './database/connection';
 import { handleGuildMemberUpdate } from './events/guildMemberUpdate';
-import { handleDirectMessage } from './events/messageCreate';
+import { handleDirectMessage, handleRecruitmentChannelMessage } from './events/messageCreate';
 import { handleJoinCommand, handleJoinModalSubmit } from './commands/join';
 import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
 import { handleSyncCommand } from './commands/sync';
@@ -27,6 +27,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -41,6 +42,7 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
 
 client.on(Events.MessageCreate, (message) => {
   handleDirectMessage(message).catch(console.error);
+  handleRecruitmentChannelMessage(message).catch(console.error);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

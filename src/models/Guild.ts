@@ -5,6 +5,7 @@ export interface IGuild extends Document {
   discord_server_id: string;
   name: string;
   api_key: string;
+  recruitment_channel: string;
   notify_channel: string;
   roles: string[];
   dm_notify_player: boolean;
@@ -15,6 +16,7 @@ const GuildSchema: Schema = new Schema({
   discord_server_id: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   api_key: { type: String, required: true },
+  recruitment_channel: { type: String, default: '' },
   notify_channel: { type: String, default: '' },
   roles: { type: [String], default: [] },
   dm_notify_player: { type: Boolean, default: false },

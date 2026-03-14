@@ -5,7 +5,7 @@ import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
 
 /** GW2 account names look like "Name.1234" */
-export const GAME_ID_REGEX = /^[\w\s.-]+\.\d{4}$/i;
+export const GAME_ID_REGEX = /([\w.-]+\.\d{4})/i;
 
 export async function handleDirectMessage(message: Message): Promise<void> {
   if (message.author.bot) return;
@@ -60,8 +60,9 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
   const guildDoc = await Guild.findOne({ discord_server_id: message.guildId }).exec();
   if (!guildDoc?.recruitment_channel || guildDoc.recruitment_channel !== message.channelId) return;
 
-  const gameId = message.content.trim();
-  if (!GAME_ID_REGEX.test(gameId)) return;
+  const match = message.content.trim().match(GAME_ID_REGEX);
+  if (!match) return;
+  const gameId = match[0];
 
   const member = message.member ?? (await message.guild?.members.fetch(message.author.id).catch(() => null));
   const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];

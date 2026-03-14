@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn src/index.ts",
+    "dev": "ts-node-dev --respawn --debug --watch src src/index.ts",
     "deploy": "ts-node src/deploy-commands.ts",
     "job:sync-members": "ts-node src/jobs/sync-guild-members.ts",
     "job:notify-wvw": "ts-node src/jobs/notify-wvw-members.ts"

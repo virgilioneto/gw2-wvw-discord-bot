@@ -22,7 +22,6 @@ const MODAL_ID = 'setup_modal';
 const SETUP_RECRUITMENT_CHANNEL_ID = 'setup_recruitment_channel';
 const SETUP_NOTIFY_CHANNEL_ID = 'setup_notify_channel';
 const SETUP_BASE_ROLE_SELECT_ID = 'setup_base_role';
-const INPUT_GUILD_NAME = 'setup_guild_name';
 const INPUT_API_KEY = 'setup_api_key';
 const INPUT_DM_NOTIFY = 'setup_dm_notify';
 
@@ -32,16 +31,23 @@ const MAX_SELECT_OPTIONS = 25;
 const pendingNotifyChannel = new Map<string, string>();
 /** Armazena roles escolhidas antes de abrir o modal: key = guildId:userId */
 const pendingRoles = new Map<string, string[]>();
+/** Armazena nome da guilda informado no comando para usar no submit do modal: key = guildId:userId */
+const pendingGuildName = new Map<string, string>();
 
 export const setupCommand = new SlashCommandBuilder()
   .setName('configurar')
   .setDescription('Configura o nome da guilda e a chave de API do Guild Wars 2 para este servidor.')
+  .addStringOption((opt) =>
+    opt
+      .setName('guilda')
+      .setDescription('Digite o nome da guilda')
+      .setRequired(true)
+  )
   .toJSON();
 
 function buildSetupModal(
   title: string,
   interaction: ChatInputCommandInteraction,
-  guildName: string,
   apiKeyPlaceholder: string,
   dmNotifyPlayer: boolean = true,
   currentNotifyChannelId?: string,
@@ -49,18 +55,6 @@ function buildSetupModal(
 ): ModalBuilder {
   const modal = new ModalBuilder().setCustomId(MODAL_ID).setTitle(title);
 
-  const nameInput = new TextInputBuilder()
-    .setCustomId(INPUT_GUILD_NAME)
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('Nome exato da guilda no jogo')
-    .setRequired(true)
-    .setMaxLength(256);
-  if (guildName) nameInput.setValue(guildName);
-  
-  const nameLabel = new LabelBuilder()
-    .setLabel("Nome da Guilda")
-    .setTextInputComponent(nameInput);
-  
   const keyInput = new TextInputBuilder()
     .setCustomId(INPUT_API_KEY)
     .setStyle(TextInputStyle.Short)
@@ -73,7 +67,7 @@ function buildSetupModal(
     .setLabel("Chave da API do Guild Wars 2")
     .setTextInputComponent(keyInput);
   
-  /*const notifyDMSelect = new StringSelectMenuBuilder()
+  const notifyDMSelect = new StringSelectMenuBuilder()
     .setCustomId(INPUT_DM_NOTIFY)
     .setPlaceholder('Escolha uma opção')
     .setRequired(true)
@@ -89,7 +83,7 @@ function buildSetupModal(
 
     const notifyDMLabel = new LabelBuilder()
       .setLabel("Enviar notificação via DM?")
-      .setStringSelectMenuComponent(notifyDMSelect);*/
+      .setStringSelectMenuComponent(notifyDMSelect);
       
     const textChannelTypes = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
     const channels = interaction.guild?.channels.cache.filter((c) => textChannelTypes.includes(c.type as ChannelType)) ?? [];
@@ -134,7 +128,7 @@ function buildSetupModal(
     .setLabel("Selecione as Roles")
     .setStringSelectMenuComponent(baseRoleSelect);
 
-  modal.addLabelComponents(nameLabel, keyLabel, recruitmentChannelLabel, notifyChannelLabel, baseRoleLabel);
+  modal.addLabelComponents(keyLabel, notifyDMLabel, recruitmentChannelLabel, notifyChannelLabel, baseRoleLabel);
 
   return modal;
 }
@@ -159,11 +153,16 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
   try {
     const key = getPendingKey(interaction);
     if (!key || !interaction.guild) return false;
+    const guildName = interaction.options.getString('guilda', true).trim();
+    if (!guildName) {
+      await interaction.reply({ content: 'Informe o nome da guilda no parâmetro **guilda**.', ephemeral: true }).catch(() => {});
+      return false;
+    }
+    pendingGuildName.set(key, guildName);
     const existing = await Guild.findOne({ discord_server_id: interaction.guildId }).exec();
     const modal = buildSetupModal(
       existing ? 'Alterar Guild' : 'Configurar guilda',
       interaction,
-      existing?.name ?? '',
       existing?.api_key ? '••••••••' : '',
       existing?.dm_notify_player ?? true,
       existing?.notify_channel ?? '',
@@ -203,7 +202,10 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
 
   await interaction.deferReply({ ephemeral: true });
 
-  const guildName = interaction.fields.getTextInputValue(INPUT_GUILD_NAME).trim();
+  const pendingKey = `${discordServerId}:${interaction.user.id}`;
+  const guildName = pendingGuildName.get(pendingKey)?.trim() ?? '';
+  pendingGuildName.delete(pendingKey);
+
   let apiKey = interaction.fields.getTextInputValue(INPUT_API_KEY).trim();
   let roleIds = interaction.fields.getStringSelectValues(SETUP_BASE_ROLE_SELECT_ID) ?? [];
   let recruitmentChannelId = interaction.fields.getStringSelectValues(SETUP_RECRUITMENT_CHANNEL_ID)?.[0] ?? '';
@@ -223,7 +225,7 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   }
 
   if (!guildName) {
-    await interaction.editReply({ content: 'Informe o nome da guilda.' });
+    await interaction.editReply({ content: 'Nome da guilda não encontrado. Use o comando novamente com o parâmetro **guilda**.' });
     return;
   }
   if (!apiKey) {
@@ -247,7 +249,8 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
 
   const guildId = guildIdFromSearch;
 
-  const pendingKey = `${discordServerId}:${interaction.user.id}`;
+  pendingNotifyChannel.delete(pendingKey);
+  pendingRoles.delete(pendingKey);
 
   await Guild.findOneAndUpdate(
     { discord_server_id: discordServerId },
@@ -265,9 +268,6 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
     },
     { upsert: true, new: true }
   ).exec();
-
-  pendingNotifyChannel.delete(pendingKey);
-  pendingRoles.delete(pendingKey);
 
   for (const m of membersResult.members) {
     const joinedAt = m.joined ? new Date(m.joined) : new Date();

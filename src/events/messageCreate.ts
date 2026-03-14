@@ -1,8 +1,30 @@
-import { Message } from 'discord.js';
-import { Guild } from '../models/Guild';
+import {
+  Message,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type MessageComponentInteraction,
+} from 'discord.js';
+import { Guild, type IGuild } from '../models/Guild';
 import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
+
+/** Pending "replace game ID?" data keyed by the reply message id. */
+const pendingReplaceByMessageId = new Map<
+  string,
+  {
+    guildDoc: IGuild;
+    newGameId: string;
+    memberRoles: string[];
+    authorId: string;
+    oldAccountId: string;
+  }
+>();
+
+const REPLACE_BUTTON_YES = 'replace_game_id_yes';
+const REPLACE_BUTTON_NO = 'replace_game_id_no';
+const REPLACE_COLLECTOR_TIMEOUT_MS = 60_000;
 
 /** GW2 account names look like "Name.1234" */
 export const GAME_ID_REGEX = /([\w.-]+\.\d{4})/i;
@@ -73,7 +95,92 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     discord_user: message.author.id,
   }).exec();
   if (existingDiscordUser && existingDiscordUser.account_id !== gameId) {
-    await message.reply(`Você já está vinculado a outro ID de jogo (${existingDiscordUser.account_id}).`).catch(() => {});
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(REPLACE_BUTTON_YES)
+        .setLabel('Sim')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(REPLACE_BUTTON_NO)
+        .setLabel('Não')
+        .setStyle(ButtonStyle.Secondary)
+    );
+    const reply = await message
+      .reply({
+        content: `Você já está vinculado a outro ID de jogo (**${existingDiscordUser.account_id}**). Deseja substituir pelo novo ID **${gameId}**?`,
+        components: [row],
+      })
+      .catch(() => null);
+    if (!reply) return;
+
+    pendingReplaceByMessageId.set(reply.id, {
+      guildDoc,
+      newGameId: gameId,
+      memberRoles,
+      authorId: message.author.id,
+      oldAccountId: existingDiscordUser.account_id,
+    });
+
+    const collector = reply.createMessageComponentCollector({
+      filter: (i: MessageComponentInteraction) => i.user.id === message.author.id,
+      time: REPLACE_COLLECTOR_TIMEOUT_MS,
+      maxComponents: 1,
+    });
+
+    collector.on('collect', async (interaction) => {
+      const pending = pendingReplaceByMessageId.get(reply.id);
+      pendingReplaceByMessageId.delete(reply.id);
+      if (!pending || pending.authorId !== interaction.user.id) {
+        await interaction.reply({ content: 'Esta confirmação expirou ou não é sua.', ephemeral: true }).catch(() => {});
+        return;
+      }
+
+      await reply.edit({ components: [] }).catch(() => {});
+
+      if (interaction.customId === REPLACE_BUTTON_NO) {
+        await interaction.reply({ content: 'Nenhuma alteração feita. Seu vínculo atual foi mantido.', ephemeral: true }).catch(() => {});
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      try {
+        await GuildMember.deleteOne({
+          guild_id: pending.guildDoc.guild_id,
+          account_id: pending.oldAccountId,
+        }).exec();
+
+        const existingMember = await GuildMember.findOne({
+          guild_id: pending.guildDoc.guild_id,
+          account_id: pending.newGameId,
+        }).exec();
+        let status: GuildMemberStatus = 'PENDING_GUILD_DATA';
+        if (existingMember) {
+          status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
+        }
+        await GuildMember.findOneAndUpdate(
+          { guild_id: pending.guildDoc.guild_id, account_id: pending.newGameId },
+          {
+            $set: {
+              discord_user: pending.authorId,
+              status,
+              roles: pending.memberRoles,
+            },
+          },
+          { upsert: true, new: true }
+        ).exec();
+
+        await interaction.editReply(`ID de jogo substituído com sucesso. Novo vínculo: **${pending.newGameId}**. Status: **${getStatusLabel(status)}**.`);
+      } catch (err) {
+        console.error(err);
+        await interaction.editReply({ content: 'Ocorreu um erro ao atualizar. Tente novamente.' }).catch(() => {});
+      }
+    });
+
+    collector.on('end', () => {
+      pendingReplaceByMessageId.delete(reply.id);
+    });
+
     return;
   }
 

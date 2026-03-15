@@ -1,5 +1,6 @@
 import {
   Message,
+  User,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -25,6 +26,21 @@ const pendingReplaceByMessageId = new Map<
 const REPLACE_BUTTON_YES = 'replace_game_id_yes';
 const REPLACE_BUTTON_NO = 'replace_game_id_no';
 const REPLACE_COLLECTOR_TIMEOUT_MS = 60_000;
+
+const DM_FAILED_CHANNEL_MESSAGE =
+  'Não foi possível enviar mensagem no privado. Ative as DMs para receber o resultado.';
+
+async function sendRecruitmentDm(
+  user: User,
+  payload: { content: string; components?: ActionRowBuilder<ButtonBuilder>[] }
+): Promise<Message | null> {
+  try {
+    const dm = await user.createDM();
+    return await dm.send(payload);
+  } catch {
+    return null;
+  }
+}
 
 /** GW2 account names look like "Name.1234" */
 export const GAME_ID_REGEX = /([\w.-]+\.\d{4})/i;
@@ -105,15 +121,18 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
         .setLabel('Não')
         .setStyle(ButtonStyle.Secondary)
     );
-    const reply = await message
-      .reply({
-        content: `Você já está vinculado a outro ID de jogo (**${existingDiscordUser.account_id}**). Deseja substituir pelo novo ID **${gameId}**?`,
-        components: [row],
-      })
-      .catch(() => null);
-    if (!reply) return;
+    const dmMessage = await sendRecruitmentDm(message.author, {
+      content: `Você já está vinculado a outro ID de jogo (**${existingDiscordUser.account_id}**). Deseja substituir pelo novo ID **${gameId}**?`,
+      components: [row],
+    });
+    if (!dmMessage) {
+      await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
+      return;
+    }
 
-    pendingReplaceByMessageId.set(reply.id, {
+    await message.react('☑').catch(() => {});
+
+    pendingReplaceByMessageId.set(dmMessage.id, {
       guildDoc,
       newGameId: gameId,
       memberRoles,
@@ -121,28 +140,28 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
       oldAccountId: existingDiscordUser.account_id,
     });
 
-    const collector = reply.createMessageComponentCollector({
+    const collector = dmMessage.createMessageComponentCollector({
       filter: (i: MessageComponentInteraction) => i.user.id === message.author.id,
       time: REPLACE_COLLECTOR_TIMEOUT_MS,
       maxComponents: 1,
     });
 
     collector.on('collect', async (interaction) => {
-      const pending = pendingReplaceByMessageId.get(reply.id);
-      pendingReplaceByMessageId.delete(reply.id);
+      const pending = pendingReplaceByMessageId.get(dmMessage.id);
+      pendingReplaceByMessageId.delete(dmMessage.id);
       if (!pending || pending.authorId !== interaction.user.id) {
-        await interaction.reply({ content: 'Esta confirmação expirou ou não é sua.', ephemeral: true }).catch(() => {});
+        await interaction.reply({ content: 'Esta confirmação expirou ou não é sua.' }).catch(() => {});
         return;
       }
 
-      await reply.edit({ components: [] }).catch(() => {});
+      await dmMessage.edit({ components: [] }).catch(() => {});
 
       if (interaction.customId === REPLACE_BUTTON_NO) {
-        await interaction.reply({ content: 'Nenhuma alteração feita. Seu vínculo atual foi mantido.', ephemeral: true }).catch(() => {});
+        await interaction.reply({ content: 'Nenhuma alteração feita. Seu vínculo atual foi mantido.' }).catch(() => {});
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply();
 
       try {
         await GuildMember.deleteOne({
@@ -178,7 +197,7 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     });
 
     collector.on('end', () => {
-      pendingReplaceByMessageId.delete(reply.id);
+      pendingReplaceByMessageId.delete(dmMessage.id);
     });
 
     return;
@@ -186,11 +205,15 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
 
   const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
   if (existingMember?.discord_user && existingMember.discord_user !== message.author.id) {
-    await message.reply('ID do jogo já está vinculado a outro usuário.').catch(() => {});
+    const dm = await sendRecruitmentDm(message.author, { content: 'ID do jogo já está vinculado a outro usuário.' });
+    if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
+    else await message.react('☑').catch(() => {});
     return;
   }
   if (existingMember?.status === 'CONFIRMED') {
-    await message.reply('ID do jogo já está confirmado.').catch(() => {});
+    const dm = await sendRecruitmentDm(message.author, { content: 'ID do jogo já está confirmado.' });
+    if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
+    else await message.react('☑').catch(() => {});
     return;
   }
 
@@ -210,5 +233,10 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     { upsert: true, new: true }
   ).exec();
 
-  await message.reply(`ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.`).catch(() => {});
+  const dm = await sendRecruitmentDm(
+    message.author,
+    { content: `ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.` }
+  );
+  if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
+  else await message.react('☑').catch(() => {});
 }

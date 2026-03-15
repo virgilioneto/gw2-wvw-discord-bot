@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { syncMembersForGuild } from '../services/syncGuildMembers';
+import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
 
 const SETUP_PERMISSIONS =
   PermissionFlagsBits.ManageRoles |
@@ -52,6 +53,13 @@ export async function handleSyncCommand(interaction: ChatInputCommandInteraction
   if (!result.ok) {
     await interaction.editReply({ content: `Erro ao sincronizar: **${result.error}**` });
     return;
+  }
+
+  const guild = interaction.guild;
+  if (guild && result.recruitmentMessagesToConfirm?.length) {
+    for (const { channelId, messageId } of result.recruitmentMessagesToConfirm) {
+      await reactRecruitmentMessageConfirmed(guild, channelId, messageId);
+    }
   }
 
   await interaction.editReply({

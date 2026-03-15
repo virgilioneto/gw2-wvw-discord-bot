@@ -10,6 +10,7 @@ import { Guild, type IGuild } from '../models/Guild';
 import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
+import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
 
 /** Pending "replace game ID?" data keyed by the reply message id. */
 const pendingReplaceByMessageId = new Map<
@@ -20,6 +21,8 @@ const pendingReplaceByMessageId = new Map<
     memberRoles: string[];
     authorId: string;
     oldAccountId: string;
+    recruitmentMessageId: string;
+    recruitmentChannelId: string;
   }
 >();
 
@@ -138,6 +141,8 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
       memberRoles,
       authorId: message.author.id,
       oldAccountId: existingDiscordUser.account_id,
+      recruitmentMessageId: message.id,
+      recruitmentChannelId: message.channelId,
     });
 
     const collector = dmMessage.createMessageComponentCollector({
@@ -184,10 +189,16 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
               discord_user: pending.authorId,
               status,
               roles: pending.memberRoles,
+              recruitment_message_id: pending.recruitmentMessageId,
+              recruitment_channel_id: pending.recruitmentChannelId,
             },
           },
           { upsert: true, new: true }
         ).exec();
+
+        if (status === 'CONFIRMED') {
+          await reactRecruitmentMessageConfirmed(interaction.guild, pending.recruitmentChannelId, pending.recruitmentMessageId);
+        }
 
         await interaction.editReply(`ID de jogo substituído com sucesso. Novo vínculo: **${pending.newGameId}**. Status: **${getStatusLabel(status)}**.`);
       } catch (err) {
@@ -228,10 +239,16 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
         discord_user: message.author.id,
         status,
         roles: memberRoles,
+        recruitment_message_id: message.id,
+        recruitment_channel_id: message.channelId,
       },
     },
     { upsert: true, new: true }
   ).exec();
+
+  if (status === 'CONFIRMED') {
+    await reactRecruitmentMessageConfirmed(message.guild, message.channelId, message.id);
+  }
 
   const dm = await sendRecruitmentDm(
     message.author,

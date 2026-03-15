@@ -10,6 +10,7 @@ import {
 import { Guild } from '../models/Guild';
 import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { getStatusLabel } from '../constants/statusLabels';
+import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
 
 const MODAL_ID = 'join_modal';
 const INPUT_GAME_ID = 'join_game_id';
@@ -111,7 +112,7 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
     if (existingMember) {
       status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
     }
-    await GuildMember.findOneAndUpdate(
+    const updated = await GuildMember.findOneAndUpdate(
       { guild_id: guildDoc.guild_id, account_id: gameId },
       {
         $set: {
@@ -122,6 +123,10 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
       },
       { upsert: true, new: true }
     ).exec();
+
+    if (updated && status === 'CONFIRMED' && updated.recruitment_message_id && updated.recruitment_channel_id) {
+      await reactRecruitmentMessageConfirmed(interaction.guild, updated.recruitment_channel_id, updated.recruitment_message_id);
+    }
 
     await interaction.reply({ content: `Seu ID de jogo foi registrado/atualizado com sucesso. Status: **${getStatusLabel(status)}**.`, ephemeral: true });
   } catch (error) {

@@ -5,8 +5,16 @@
 import { GuildMember, IGuildMember } from '../models/GuildMember';
 import { getGuildMembers, Gw2GuildMember } from './gw2GuildMembers';
 
+export type RecruitmentMessageToConfirm = { channelId: string; messageId: string };
+
 export type SyncMembersResult =
-  | { ok: true; pendingGuildDataCount: number; pendingDiscordDataCount: number; confirmedCount: number }
+  | {
+      ok: true;
+      pendingGuildDataCount: number;
+      pendingDiscordDataCount: number;
+      confirmedCount: number;
+      recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[];
+    }
   | { ok: false; error: string };
 
 export async function syncMembersForGuild(
@@ -21,6 +29,7 @@ export async function syncMembersForGuild(
   let confirmedCount = 0;
   let pendingGuildDataCount = 0;
   let pendingDiscordDataCount = 0;
+  const recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[] = [];
 
   const dbMembers = await GuildMember.find({ guild_id: guildId }).lean<IGuildMember[]>();
   const dbMembersMap = new Map<string, IGuildMember>(dbMembers.map((m) => [m.account_id, m]));
@@ -34,6 +43,12 @@ export async function syncMembersForGuild(
       const dbMember = dbMembersMap.get(accountId);
 
       if (dbMember?.status === 'PENDING_GUILD_DATA') {
+        if (dbMember.recruitment_message_id && dbMember.recruitment_channel_id) {
+          recruitmentMessagesToConfirm.push({
+            channelId: dbMember.recruitment_channel_id,
+            messageId: dbMember.recruitment_message_id,
+          });
+        }
         await GuildMember.findOneAndUpdate(
           { guild_id: guildId, account_id: accountId },
           {
@@ -72,5 +87,11 @@ export async function syncMembersForGuild(
     pendingGuildDataCount++;
   }
 
-  return { ok: true, pendingGuildDataCount, pendingDiscordDataCount, confirmedCount };
+  return {
+    ok: true,
+    pendingGuildDataCount,
+    pendingDiscordDataCount,
+    confirmedCount,
+    recruitmentMessagesToConfirm,
+  };
 }

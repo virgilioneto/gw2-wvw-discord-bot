@@ -10,6 +10,10 @@ export interface IGuildMember extends Document {
   joined_at: Date;
   status: GuildMemberStatus;
   roles: string[];
+  /** Discord message id of the recruitment channel message that matched this game id */
+  recruitment_message_id?: string;
+  /** Discord channel id where the recruitment message was sent */
+  recruitment_channel_id?: string;
 }
 
 const GuildMemberSchema: Schema = new Schema({
@@ -20,6 +24,8 @@ const GuildMemberSchema: Schema = new Schema({
   joined_at: { type: Date },
   status: { type: String, enum: ['PENDING_GUILD_DATA', 'PENDING_DISCORD_DATA', 'CONFIRMED'] },
   roles: { type: [String], default: [] },
+  recruitment_message_id: { type: String, required: false },
+  recruitment_channel_id: { type: String, required: false },
 });
 
 // Índice composto para upsert por guild_id + account_id

@@ -3,6 +3,7 @@ import { Guild } from '../models/Guild';
 import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { getStatusLabel } from '../constants/statusLabels';
 import { GAME_ID_REGEX } from '../events/messageCreate';
+import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
 
 export const manualIncludeCommand = new SlashCommandBuilder()
   .setName('inclusão-manual')
@@ -129,7 +130,7 @@ export async function handleManualIncludeCommand(interaction: ChatInputCommandIn
     if (existingMember) {
       status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
     }
-    await GuildMember.findOneAndUpdate(
+    const updated = await GuildMember.findOneAndUpdate(
       { guild_id: guildDoc.guild_id, account_id: gameId },
       {
         $set: {
@@ -140,6 +141,10 @@ export async function handleManualIncludeCommand(interaction: ChatInputCommandIn
       },
       { upsert: true, new: true }
     ).exec();
+
+    if (updated && status === 'CONFIRMED' && updated.recruitment_message_id && updated.recruitment_channel_id) {
+      await reactRecruitmentMessageConfirmed(interaction.guild, updated.recruitment_channel_id, updated.recruitment_message_id);
+    }
 
     results.push(`**${username}** → ${gameId}: ${getStatusLabel(status)}`);
   }

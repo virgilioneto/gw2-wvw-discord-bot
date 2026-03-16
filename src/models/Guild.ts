@@ -7,8 +7,7 @@ export interface IGuild extends Document {
   api_key: string;
   recruitment_channel: string;
   notify_channel: string;
-  roles: string[];
-  dm_notify_player: boolean;
+  notification_roles: string[];
 }
 
 const GuildSchema: Schema = new Schema({
@@ -18,8 +17,7 @@ const GuildSchema: Schema = new Schema({
   api_key: { type: String, required: true },
   recruitment_channel: { type: String, default: '' },
   notify_channel: { type: String, default: '' },
-  roles: { type: [String], default: [] },
-  dm_notify_player: { type: Boolean, default: false },
+  notification_roles: { type: [String], default: [] },
 });
 
 export const Guild: Model<IGuild> = mongoose.model<IGuild>('Guild', GuildSchema);

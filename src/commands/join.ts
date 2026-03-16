@@ -8,9 +8,13 @@ import {
   ModalSubmitInteraction,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { getStatusLabel } from '../constants/statusLabels';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import {
+  linkDiscordToGameId,
+  findByGuildAndAccount,
+  findByGuildAndDiscordUser,
+} from '../services/guildMemberService';
 
 const MODAL_ID = 'join_modal';
 const INPUT_GAME_ID = 'join_game_id';
@@ -58,10 +62,7 @@ export async function handleJoinCommand(interaction: ChatInputCommandInteraction
     return;
   }
 
-  const existing = await GuildMember.findOne({
-    guild_id: guildDoc.guild_id,
-    discord_user: interaction.user.id,
-  }).exec();
+  const existing = await findByGuildAndDiscordUser(guildDoc.guild_id, interaction.user.id);
 
   await showJoinModal(interaction, existing?.account_id ?? '');
 }
@@ -89,42 +90,33 @@ export async function handleJoinModalSubmit(interaction: ModalSubmitInteraction)
     }
 
     const member = interaction.guild?.members.resolve(interaction.user.id) ?? (await interaction.guild?.members.fetch(interaction.user.id).catch(() => null));
-    const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
+    const guildRoleIds = Array.isArray(guildDoc.notification_roles) ? guildDoc.notification_roles : [];
     const memberRoles = guildRoleIds.filter((roleId) => member?.roles.cache.has(roleId) ?? false);
 
-    const existingDiscordUser = await GuildMember.findOne({ guild_id: guildDoc.guild_id, discord_user: interaction.user.id }).exec();
+    const existingDiscordUser = await findByGuildAndDiscordUser(guildDoc.guild_id, interaction.user.id);
     if (existingDiscordUser) {
       await interaction.reply({ content: `Você já está vinculado a outro ID de jogo (${existingDiscordUser.account_id}).`, ephemeral: true });
       return;
     }
-    const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
+    const existingMember = await findByGuildAndAccount(guildDoc.guild_id, gameId);
 
     if (existingMember?.discord_user && existingMember.discord_user !== interaction.user.id) {
       await interaction.reply({ content: 'ID do jogo já está vinculado a outro usuário.', ephemeral: true });
-      return
+      return;
     }
     if (existingMember?.status === 'CONFIRMED') {
       await interaction.reply({ content: 'ID do jogo já está confirmado.', ephemeral: true });
       return;
     }
 
-    let status: GuildMemberStatus = 'PENDING_GUILD_DATA'
-    if (existingMember) {
-      status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
-    }
-    const updated = await GuildMember.findOneAndUpdate(
-      { guild_id: guildDoc.guild_id, account_id: gameId },
-      {
-        $set: {
-          discord_user: interaction.user.id,
-          status,
-          roles: memberRoles,
-        },
-      },
-      { upsert: true, new: true }
-    ).exec();
+    const { updated, status } = await linkDiscordToGameId({
+      guildId: guildDoc.guild_id,
+      accountId: gameId,
+      discordUserId: interaction.user.id,
+      roles: memberRoles,
+    });
 
-    if (updated && status === 'CONFIRMED' && updated.recruitment_message_id && updated.recruitment_channel_id) {
+    if (status === 'CONFIRMED' && updated.recruitment_message_id && updated.recruitment_channel_id) {
       await reactRecruitmentMessageConfirmed(interaction.guild, updated.recruitment_channel_id, updated.recruitment_message_id);
     }
 

@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember } from '../models/GuildMember';
+import { findPendingWvwMembers } from '../services/guildMemberService';
 
 const SETUP_PERMISSIONS =
   PermissionFlagsBits.ManageRoles |
@@ -49,14 +49,8 @@ export async function handlePendingPlayersCommand(
 
   await interaction.deferReply({ ephemeral: true });
 
-  const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
-  const members = await GuildMember.find({
-    guild_id: guildDoc.guild_id,
-    status: 'CONFIRMED',
-    wvw_member: false,
-    roles: { $in: guildRoleIds },
-  })
-    .exec();
+  const guildRoleIds = Array.isArray(guildDoc.notification_roles) ? guildDoc.notification_roles : [];
+  const members = await findPendingWvwMembers(guildDoc.guild_id, guildRoleIds);
 
   const lines: string[] = [];
   for (const m of members) {

@@ -1,7 +1,7 @@
 import { GuildMember, PartialGuildMember } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember as GuildMemberModel } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
+import { findByGuildAndDiscordUser } from '../services/guildMemberService';
 
 /**
  * Envia DM quando o usuário recebe uma das roles configuradas da guilda no servidor,
@@ -17,10 +17,10 @@ export async function handleGuildMemberUpdate(
   const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
   if (!guildDoc) return;
 
-  const guildRoleIds = Array.isArray(guildDoc?.roles) ? guildDoc?.roles : [];
+  const guildRoleIds = Array.isArray(guildDoc?.notification_roles) ? guildDoc?.notification_roles : [];
   if (guildRoleIds.length === 0) return;
 
-  const existingDiscordUser = await GuildMemberModel.findOne({ guild_id: guildDoc.guild_id, discord_user: newMember.id }).exec();
+  const existingDiscordUser = await findByGuildAndDiscordUser(guildDoc.guild_id, newMember.id);
   if (existingDiscordUser) return;
 
   const gainedRoleId = guildRoleIds.find((roleId) => {

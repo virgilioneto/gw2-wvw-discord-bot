@@ -14,16 +14,15 @@ import {
   LabelBuilder,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember } from '../models/GuildMember';
 import { searchGuildByName } from '../services/gw2Api';
 import { getGuildMembers } from '../services/gw2GuildMembers';
+import { upsertFromSetup } from '../services/guildMemberService';
 
 const MODAL_ID = 'setup_modal';
 const SETUP_RECRUITMENT_CHANNEL_ID = 'setup_recruitment_channel';
 const SETUP_NOTIFY_CHANNEL_ID = 'setup_notify_channel';
 const SETUP_BASE_ROLE_SELECT_ID = 'setup_base_role';
 const INPUT_API_KEY = 'setup_api_key';
-const INPUT_DM_NOTIFY = 'setup_dm_notify';
 
 const MAX_SELECT_OPTIONS = 25;
 
@@ -49,7 +48,6 @@ function buildSetupModal(
   title: string,
   interaction: ChatInputCommandInteraction,
   apiKeyPlaceholder: string,
-  dmNotifyPlayer: boolean = true,
   currentNotifyChannelId?: string,
   currentRoleIds: string[] = []
 ): ModalBuilder {
@@ -66,24 +64,6 @@ function buildSetupModal(
   const keyLabel = new LabelBuilder()
     .setLabel("Chave da API do Guild Wars 2")
     .setTextInputComponent(keyInput);
-  
-  const notifyDMSelect = new StringSelectMenuBuilder()
-    .setCustomId(INPUT_DM_NOTIFY)
-    .setPlaceholder('Escolha uma opção')
-    .setRequired(true)
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Não')
-      .setValue('false'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Sim')
-        .setDescription('O bot enviará DM se o jogador não definir a guilda como WvW no jogo.')
-        .setValue('true'),
-    );
-
-    const notifyDMLabel = new LabelBuilder()
-      .setLabel("Enviar notificação via DM?")
-      .setStringSelectMenuComponent(notifyDMSelect);
       
     const textChannelTypes = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
     const channels = interaction.guild?.channels.cache.filter((c) => textChannelTypes.includes(c.type as ChannelType)) ?? [];
@@ -128,7 +108,7 @@ function buildSetupModal(
     .setLabel("Selecione as Roles")
     .setStringSelectMenuComponent(baseRoleSelect);
 
-  modal.addLabelComponents(keyLabel, notifyDMLabel, recruitmentChannelLabel, notifyChannelLabel, baseRoleLabel);
+  modal.addLabelComponents(keyLabel, recruitmentChannelLabel, notifyChannelLabel, baseRoleLabel);
 
   return modal;
 }
@@ -164,9 +144,8 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
       existing ? 'Alterar Guild' : 'Configurar guilda',
       interaction,
       existing?.api_key ? '••••••••' : '',
-      existing?.dm_notify_player ?? true,
       existing?.notify_channel ?? '',
-      existing?.roles ?? []
+      existing?.notification_roles ?? []
     );
     await interaction.showModal(modal);
   } catch (error) {
@@ -211,14 +190,6 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   let recruitmentChannelId = interaction.fields.getStringSelectValues(SETUP_RECRUITMENT_CHANNEL_ID)?.[0] ?? '';
   let notifyChannelId = interaction.fields.getStringSelectValues(SETUP_NOTIFY_CHANNEL_ID)?.[0] ?? '';
 
-  let dmNotifyPlayer = true;
-  try {
-    const dmNotifyRaw = interaction.fields.getTextInputValue(INPUT_DM_NOTIFY)?.trim().toLowerCase() ?? 'sim';
-    dmNotifyPlayer = /^(sim|s|yes|true|1)$/i.test(dmNotifyRaw);
-  } catch {
-    // Modal antigo sem o campo: mantém true
-  }
-
   const existingGuild = await Guild.findOne({ discord_server_id: discordServerId }).exec();
   if (existingGuild && !apiKey) {
     apiKey = existingGuild.api_key;
@@ -262,30 +233,14 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
         api_key: apiKey,
         ...(recruitmentChannelId ? { recruitment_channel: recruitmentChannelId } : {}),
         ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
-        roles: roleIds.filter((id) => id !== '__none__'),
-        dm_notify_player: dmNotifyPlayer,
+        notification_roles: roleIds.filter((id) => id !== '__none__'),
       },
     },
     { upsert: true, new: true }
   ).exec();
 
   for (const m of membersResult.members) {
-    const joinedAt = m.joined ? new Date(m.joined) : new Date();
-    await GuildMember.findOneAndUpdate(
-      { guild_id: guildId, account_id: m.name },
-      {
-        $set: {
-          account_id: m.name,
-          guild_id: guildId,
-          wvw_member: m.wvw_member,
-          joined_at: joinedAt,
-        },
-        $setOnInsert: {
-          status: 'PENDING_DISCORD_DATA',
-        },
-      },
-      { upsert: true }
-    ).exec();
+    await upsertFromSetup(guildId, m);
   }
 
   const channelInfo = notifyChannelId && interaction.guild

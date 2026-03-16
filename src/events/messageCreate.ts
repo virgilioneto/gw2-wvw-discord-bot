@@ -7,10 +7,16 @@ import {
   type MessageComponentInteraction,
 } from 'discord.js';
 import { Guild, type IGuild } from '../models/Guild';
-import { GuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import { GAME_ID_REGEX } from '../constants/gameId';
+import {
+  linkDiscordToGameId,
+  findByGuildAndAccount,
+  findByGuildAndDiscordUser,
+  removeMember,
+} from '../services/guildMemberService';
 
 /** Pending "replace game ID?" data keyed by the reply message id. */
 const pendingReplaceByMessageId = new Map<
@@ -45,13 +51,12 @@ async function sendRecruitmentDm(
   }
 }
 
-/** GW2 account names look like "Name.1234" */
-export const GAME_ID_REGEX = /([\w.-]+\.\d{4})/i;
+export { GAME_ID_REGEX } from '../constants/gameId';
 
 export async function handleDirectMessage(message: Message): Promise<void> {
   if (message.author.bot) return;
   if (!message.guildId && message.channel.isDMBased()) {
-    const {discordServerId, roles} = pendingGameIdByUser.get(message.author.id) || {};
+    const { discordServerId, roles } = pendingGameIdByUser.get(message.author.id) || {};
     if (!discordServerId) return;
 
     const gameId = message.content.trim();
@@ -65,25 +70,14 @@ export async function handleDirectMessage(message: Message): Promise<void> {
       pendingGameIdByUser.delete(message.author.id);
       return;
     }
-    const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
-
-    let status: GuildMemberStatus = 'PENDING_GUILD_DATA'
-    if (existingMember) {
-      status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
-    }
-    const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
+    const guildRoleIds = Array.isArray(guildDoc.notification_roles) ? guildDoc.notification_roles : [];
     const memberRoles = guildRoleIds.filter((roleId) => roles?.includes(roleId) ?? false);
-    await GuildMember.findOneAndUpdate(
-      { guild_id: guildDoc.guild_id, account_id: gameId },
-      {
-        $set: {
-          discord_user: message.author.id,
-          status,
-          roles: memberRoles,
-        },
-      },
-      { upsert: true, new: true }
-    ).exec();
+    const { status } = await linkDiscordToGameId({
+      guildId: guildDoc.guild_id,
+      accountId: gameId,
+      discordUserId: message.author.id,
+      roles: memberRoles,
+    });
 
     pendingGameIdByUser.delete(message.author.id);
     await message.reply(`Seu ID de jogo foi registrado com sucesso. Status: **${getStatusLabel(status)}**.`);
@@ -106,13 +100,10 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
   const gameId = match[0];
 
   const member = message.member ?? (await message.guild?.members.fetch(message.author.id).catch(() => null));
-  const guildRoleIds = Array.isArray(guildDoc.roles) ? guildDoc.roles : [];
+  const guildRoleIds = Array.isArray(guildDoc.notification_roles) ? guildDoc.notification_roles : [];
   const memberRoles = member ? guildRoleIds.filter((roleId) => member.roles.cache.has(roleId)) : [];
 
-  const existingDiscordUser = await GuildMember.findOne({
-    guild_id: guildDoc.guild_id,
-    discord_user: message.author.id,
-  }).exec();
+  const existingDiscordUser = await findByGuildAndDiscordUser(guildDoc.guild_id, message.author.id);
   if (existingDiscordUser && existingDiscordUser.account_id !== gameId) {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -169,32 +160,16 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
       await interaction.deferReply();
 
       try {
-        await GuildMember.deleteOne({
-          guild_id: pending.guildDoc.guild_id,
-          account_id: pending.oldAccountId,
-        }).exec();
+        await removeMember(pending.guildDoc.guild_id, pending.oldAccountId);
 
-        const existingMember = await GuildMember.findOne({
-          guild_id: pending.guildDoc.guild_id,
-          account_id: pending.newGameId,
-        }).exec();
-        let status: GuildMemberStatus = 'PENDING_GUILD_DATA';
-        if (existingMember) {
-          status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
-        }
-        await GuildMember.findOneAndUpdate(
-          { guild_id: pending.guildDoc.guild_id, account_id: pending.newGameId },
-          {
-            $set: {
-              discord_user: pending.authorId,
-              status,
-              roles: pending.memberRoles,
-              recruitment_message_id: pending.recruitmentMessageId,
-              recruitment_channel_id: pending.recruitmentChannelId,
-            },
-          },
-          { upsert: true, new: true }
-        ).exec();
+        const { status } = await linkDiscordToGameId({
+          guildId: pending.guildDoc.guild_id,
+          accountId: pending.newGameId,
+          discordUserId: pending.authorId,
+          roles: pending.memberRoles,
+          recruitment_message_id: pending.recruitmentMessageId,
+          recruitment_channel_id: pending.recruitmentChannelId,
+        });
 
         if (status === 'CONFIRMED') {
           await reactRecruitmentMessageConfirmed(interaction.guild, pending.recruitmentChannelId, pending.recruitmentMessageId);
@@ -214,7 +189,7 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     return;
   }
 
-  const existingMember = await GuildMember.findOne({ guild_id: guildDoc.guild_id, account_id: gameId }).exec();
+  const existingMember = await findByGuildAndAccount(guildDoc.guild_id, gameId);
   if (existingMember?.discord_user && existingMember.discord_user !== message.author.id) {
     const dm = await sendRecruitmentDm(message.author, { content: 'ID do jogo já está vinculado a outro usuário.' });
     if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
@@ -228,23 +203,14 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     return;
   }
 
-  let status: GuildMemberStatus = 'PENDING_GUILD_DATA';
-  if (existingMember) {
-    status = existingMember.status === 'PENDING_DISCORD_DATA' ? 'CONFIRMED' : existingMember.status;
-  }
-  await GuildMember.findOneAndUpdate(
-    { guild_id: guildDoc.guild_id, account_id: gameId },
-    {
-      $set: {
-        discord_user: message.author.id,
-        status,
-        roles: memberRoles,
-        recruitment_message_id: message.id,
-        recruitment_channel_id: message.channelId,
-      },
-    },
-    { upsert: true, new: true }
-  ).exec();
+  const { status } = await linkDiscordToGameId({
+    guildId: guildDoc.guild_id,
+    accountId: gameId,
+    discordUserId: message.author.id,
+    roles: memberRoles,
+    recruitment_message_id: message.id,
+    recruitment_channel_id: message.channelId,
+  });
 
   if (status === 'CONFIRMED') {
     await reactRecruitmentMessageConfirmed(message.guild, message.channelId, message.id);

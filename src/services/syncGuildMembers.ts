@@ -1,9 +1,15 @@
 /**
  * Serviço compartilhado: sincroniza membros de uma guilda GW2 com a collection guild_members.
  * Usado pelo job sync-guild-members e pelo comando /sync.
+ * Delega inserções e regras de status ao guildMemberService.
  */
 import { GuildMember, IGuildMember } from '../models/GuildMember';
 import { getGuildMembers, Gw2GuildMember } from './gw2GuildMembers';
+import {
+  createFromApiMember,
+  markAsPendingGuildData,
+  confirmFromGuildData,
+} from './guildMemberService';
 
 export type RecruitmentMessageToConfirm = { channelId: string; messageId: string };
 
@@ -43,47 +49,25 @@ export async function syncMembersForGuild(
       const dbMember = dbMembersMap.get(accountId);
 
       if (dbMember?.status === 'PENDING_GUILD_DATA') {
-        if (dbMember.recruitment_message_id && dbMember.recruitment_channel_id) {
+        const confirmResult = await confirmFromGuildData(guildId, accountId, joined);
+        if (confirmResult.channelId && confirmResult.messageId) {
           recruitmentMessagesToConfirm.push({
-            channelId: dbMember.recruitment_channel_id,
-            messageId: dbMember.recruitment_message_id,
+            channelId: confirmResult.channelId,
+            messageId: confirmResult.messageId,
           });
         }
-        await GuildMember.findOneAndUpdate(
-          { guild_id: guildId, account_id: accountId },
-          {
-            $set: {
-              status: 'CONFIRMED',
-              joined_at: joined,
-            },
-          }
-        ).exec();
         confirmedCount++;
       }
 
       dbMembersMap.delete(accountId);
     } else {
-      await GuildMember.create({
-        account_id: apiMember.name,
-        guild_id: guildId,
-        wvw_member: apiMember.wvw_member,
-        joined_at: joined,
-        status: 'PENDING_DISCORD_DATA',
-      });
+      await createFromApiMember(guildId, apiMember);
       pendingDiscordDataCount++;
     }
   }
 
   for (const [accountId] of dbMembersMap.entries()) {
-    await GuildMember.findOneAndUpdate(
-      { guild_id: guildId, account_id: accountId },
-      {
-        $set: {
-          status: 'PENDING_GUILD_DATA',
-          joined_at: null,
-        },
-      }
-    ).exec();
+    await markAsPendingGuildData(guildId, accountId);
     pendingGuildDataCount++;
   }
 

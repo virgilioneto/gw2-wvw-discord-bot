@@ -12,7 +12,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { GuildMember } from '../models/GuildMember';
+import { findPendingWvwMembers } from '../services/guildMemberService';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -98,14 +98,9 @@ async function run(): Promise<void> {
   const errors: { guildName: string; userId: string; error: string }[] = [];
 
   for (const guild of guilds) {
-    // Membros que têm pelo menos uma role em comum com as roles da guilda (intersect)
-    const guildRoleIds = Array.isArray(guild.roles) ? guild.roles : [];
-    const members = await GuildMember.find({
-      guild_id: guild.guild_id,
-      status: 'CONFIRMED',
-      wvw_member: false,
-      roles: { $in: guildRoleIds },
-    }).exec();
+    // Membros que têm pelo menos uma role em comum com as notification_roles da guilda (intersect)
+    const guildRoleIds = Array.isArray(guild.notification_roles) ? guild.notification_roles : [];
+    const members = await findPendingWvwMembers(guild.guild_id, guildRoleIds);
 
     if (members.length === 0) {
       console.log(`[${guild.name}] Nenhum membro com wvw_member=false, Discord vinculado e com alguma das roles da guilda.`);
@@ -142,29 +137,26 @@ async function run(): Promise<void> {
       }
     }
 
-    if (guild.dm_notify_player) {
-      console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. Enviando DMs...`);
+    // Sempre envia DM para cada membro pendente
+    console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. Enviando DMs...`);
 
-      for (const member of members) {
-        try {
-          const user = await client.users.fetch(member.discord_user);
-          const dm = await user.createDM();
-          await dm.send(
-            `Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
-          );
-          totalSent++;
-          process.stdout.write('.');
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          totalSkipped++;
-          errors.push({ guildName: guild.name, userId: member.discord_user, error: msg });
-          process.stdout.write('x');
-        }
+    for (const member of members) {
+      try {
+        const user = await client.users.fetch(member.discord_user);
+        const dm = await user.createDM();
+        await dm.send(
+          `Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
+        );
+        totalSent++;
+        process.stdout.write('.');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        totalSkipped++;
+        errors.push({ guildName: guild.name, userId: member.discord_user, error: msg });
+        process.stdout.write('x');
       }
-      if (members.length > 0) console.log('');
-    } else {
-      console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. DM desativada para esta guilda.`);
     }
+    if (members.length > 0) console.log('');
   }
 
   console.log('\n--- Resumo ---');

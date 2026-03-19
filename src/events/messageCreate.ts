@@ -6,10 +6,11 @@ import {
   ButtonStyle,
   type MessageComponentInteraction,
 } from 'discord.js';
-import { Guild, type IGuild } from '../models/Guild';
+import { Guild, type IGuild, type IRecruitmentMessagePayload } from '../models/Guild';
 import { pendingGameIdByUser } from '../utils/pendingDm';
 import { getStatusLabel } from '../constants/statusLabels';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import { userSharesRoleWithBot } from '../utils/roleCheck';
 import { GAME_ID_REGEX } from '../constants/gameId';
 import {
   linkDiscordToGameId,
@@ -17,6 +18,38 @@ import {
   findByGuildAndDiscordUser,
   removeMember,
 } from '../services/guildMemberService';
+
+/** Serializa uma mensagem para o formato armazenado em recruitment_message (para reenvio futuro). */
+function messageToRecruitmentPayload(message: Message): IRecruitmentMessagePayload {
+  const embeds =
+    message.embeds.length > 0
+      ? message.embeds.map((e) => (typeof (e as { toJSON?: () => unknown }).toJSON === 'function' ? (e as { toJSON: () => unknown }).toJSON() : e) as Record<string, unknown>)
+      : undefined;
+  const components =
+    message.components.length > 0
+      ? message.components.map((c) => (typeof (c as { toJSON?: () => unknown }).toJSON === 'function' ? (c as { toJSON: () => unknown }).toJSON() : c) as Record<string, unknown>)
+      : undefined;
+  const attachment_urls =
+    message.attachments.size > 0
+      ? message.attachments.map((a) => ({ url: a.url, name: a.name ?? undefined }))
+      : undefined;
+  return {
+    ...(message.content?.trim() ? { content: message.content } : {}),
+    ...(embeds?.length ? { embeds } : {}),
+    ...(components?.length ? { components } : {}),
+    ...(attachment_urls?.length ? { attachment_urls } : {}),
+  };
+}
+
+/** Custom IDs dos botões de escolha do tipo de mensagem (Recrutamento / Notificação). */
+export const MSG_TYPE_RECRUITMENT = 'message_type_recruitment';
+export const MSG_TYPE_NOTIFICATION = 'message_type_notification';
+
+/** Pendência: escolha Recrutamento vs Notificação keyed by the bot reply message id. */
+const pendingMessageTypeByMessageId = new Map<
+  string,
+  { discordServerId: string; payload: IRecruitmentMessagePayload; userId: string }
+>();
 
 /** Pending "replace game ID?" data keyed by the reply message id. */
 const pendingReplaceByMessageId = new Map<
@@ -222,4 +255,98 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
   );
   if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
   else await message.react('☑').catch(() => {});
+}
+
+/**
+ * Se o usuário responder a uma mensagem mencionando o bot e tiver alguma role em comum com o bot,
+ * pergunta que tipo de mensagem é (Recrutamento ou Notificação) com botões; ao clicar, salva na propriedade correspondente (override sem confirmação).
+ */
+export async function handleBotMentionRecruitmentMessage(message: Message): Promise<void> {
+  if (message.author.bot || !message.guildId || !message.guild) return;
+  const clientUser = message.client.user;
+  if (!clientUser || !message.mentions.users.has(clientUser.id)) return;
+
+  const repliedToId = message.reference?.messageId;
+  if (!repliedToId) return;
+
+  const guildDoc = await Guild.findOne({ discord_server_id: message.guildId }).exec();
+  if (!guildDoc) return;
+
+  const member = message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
+  if (!userSharesRoleWithBot(message.guild, member)) return;
+
+  const repliedToMessage = await message.channel.messages.fetch(repliedToId).catch(() => null);
+  if (!repliedToMessage) return;
+
+  const payload = messageToRecruitmentPayload(repliedToMessage);
+  const hasContent =
+    (payload.content?.trim?.()?.length ?? 0) > 0 ||
+    (payload.embeds?.length ?? 0) > 0 ||
+    (payload.components?.length ?? 0) > 0 ||
+    (payload.attachment_urls?.length ?? 0) > 0;
+  if (!hasContent) return;
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(MSG_TYPE_RECRUITMENT).setLabel('Recrutamento').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(MSG_TYPE_NOTIFICATION).setLabel('Notificação').setStyle(ButtonStyle.Secondary)
+  );
+  const reply = await message.reply({
+    content: 'Que tipo de mensagem é essa? (a mensagem respondida será salva; pode sobrescrever a qualquer momento.)',
+    components: [row],
+  }).catch(() => null);
+  if (!reply) return;
+
+  pendingMessageTypeByMessageId.set(reply.id, {
+    discordServerId: message.guildId,
+    payload,
+    userId: message.author.id,
+  });
+}
+
+/**
+ * Trata o clique no botão Recrutamento ou Notificação: salva o payload em recruitment_message ou notification_message (override sem confirmação).
+ * Retorna true se a interação foi tratada.
+ */
+export async function handleMessageTypeChoiceButton(
+  interaction: MessageComponentInteraction
+): Promise<boolean> {
+  const customId = interaction.customId;
+  if (customId !== MSG_TYPE_RECRUITMENT && customId !== MSG_TYPE_NOTIFICATION) return false;
+
+  const messageId = interaction.message.id;
+  const pending = pendingMessageTypeByMessageId.get(messageId);
+  pendingMessageTypeByMessageId.delete(messageId);
+
+  if (!pending || pending.userId !== interaction.user.id) {
+    await interaction.reply({
+      content: 'Esta escolha expirou ou não é sua. Responda de novo à mensagem mencionando o bot.',
+      ephemeral: true,
+    }).catch(() => {});
+    return true;
+  }
+
+  const guild = interaction.guild;
+  const member = interaction.member;
+  if (!guild || !userSharesRoleWithBot(guild, member as Parameters<typeof userSharesRoleWithBot>[1])) {
+    await interaction.reply({
+      content: 'Apenas usuários com alguma role em comum com o bot podem usar esta ação.',
+      ephemeral: true,
+    }).catch(() => {});
+    return true;
+  }
+
+  const field = customId === MSG_TYPE_RECRUITMENT ? 'recruitment_message' : 'notification_message';
+  const label = customId === MSG_TYPE_RECRUITMENT ? 'recruitment_message' : 'notification_message';
+
+  await Guild.findOneAndUpdate(
+    { discord_server_id: pending.discordServerId },
+    { $set: { [field]: pending.payload } }
+  ).exec();
+
+  await interaction.update({
+    content: `Salvo em **${label}**. (pode sobrescrever respondendo outra mensagem e escolhendo de novo.)`,
+    components: [],
+  }).catch(() => {});
+
+  return true;
 }

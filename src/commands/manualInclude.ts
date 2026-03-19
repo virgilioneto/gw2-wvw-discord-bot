@@ -1,8 +1,9 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { getStatusLabel } from '../constants/statusLabels';
 import { GAME_ID_REGEX } from '../constants/gameId';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import { userSharesRoleWithBot } from '../utils/roleCheck';
 import {
   linkDiscordToGameId,
   findByGuildAndAccount,
@@ -11,7 +12,7 @@ import {
 
 export const manualIncludeCommand = new SlashCommandBuilder()
   .setName('inclusão-manual')
-  .setDescription('Vincula manualmente usuários do Discord a IDs de jogo (ex.: usuario=Nome.1234, outro=Outro.4321).')
+  .setDescription('[ADM] Vincula usuários Discord a IDs de jogo: usuario=Nome.1234, ...')
   .addStringOption((opt) =>
     opt
       .setName('lista')
@@ -49,24 +50,16 @@ function findMemberByUsername(
 }
 
 export async function handleManualIncludeCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const permissions = interaction.memberPermissions;
-  const allowed =
-    permissions?.has(PermissionFlagsBits.ManageRoles) ||
-    permissions?.has(PermissionFlagsBits.ManageChannels) ||
-    permissions?.has(PermissionFlagsBits.ManageGuild) ||
-    permissions?.has(PermissionFlagsBits.Administrator);
-  if (!allowed) {
-    await interaction.reply({
-      content:
-        'Você precisa de uma destas permissões no servidor: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
-      ephemeral: true,
-    });
-    return;
-  }
-
   const discordServerId = interaction.guildId;
   if (!discordServerId || !interaction.guild) {
     await interaction.reply({ content: 'Este comando só pode ser usado em um servidor.', ephemeral: true });
+    return;
+  }
+  if (!userSharesRoleWithBot(interaction.guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
+    await interaction.reply({
+      content: 'Você não tem permissão para executar este comando',
+      ephemeral: true,
+    });
     return;
   }
 

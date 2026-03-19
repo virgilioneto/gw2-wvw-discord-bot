@@ -9,7 +9,6 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   ChannelType,
-  PermissionFlagsBits,
   StringSelectMenuOptionBuilder,
   LabelBuilder,
 } from 'discord.js';
@@ -17,6 +16,7 @@ import { Guild } from '../models/Guild';
 import { searchGuildByName } from '../services/gw2Api';
 import { getGuildMembers } from '../services/gw2GuildMembers';
 import { upsertFromSetup } from '../services/guildMemberService';
+import { userSharesRoleWithBot } from '../utils/roleCheck';
 
 const MODAL_ID = 'setup_modal';
 const SETUP_RECRUITMENT_CHANNEL_ID = 'setup_recruitment_channel';
@@ -35,7 +35,7 @@ const pendingGuildName = new Map<string, string>();
 
 export const setupCommand = new SlashCommandBuilder()
   .setName('configurar')
-  .setDescription('Configura o nome da guilda e a chave de API do Guild Wars 2 para este servidor.')
+  .setDescription('[ADM] Configura o nome da guilda e a chave de API do Guild Wars 2 para este servidor.')
   .addStringOption((opt) =>
     opt
       .setName('guilda')
@@ -133,6 +133,13 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
   try {
     const key = getPendingKey(interaction);
     if (!key || !interaction.guild) return false;
+    if (!userSharesRoleWithBot(interaction.guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
+      await interaction.reply({
+        content: 'Você não tem permissão para executar este comando',
+        ephemeral: true,
+      }).catch(() => {});
+      return false;
+    }
     const guildName = interaction.options.getString('guilda', true).trim();
     if (!guildName) {
       await interaction.reply({ content: 'Informe o nome da guilda no parâmetro **guilda**.', ephemeral: true }).catch(() => {});
@@ -159,21 +166,14 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   if (interaction.customId !== MODAL_ID) return;
 
   const discordServerId = interaction.guildId;
-  if (!discordServerId) {
+  const guild = interaction.guild;
+  if (!discordServerId || !guild) {
     await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true });
     return;
   }
-
-  const permissions = interaction.memberPermissions;
-  const allowed =
-    permissions?.has(PermissionFlagsBits.ManageRoles) ||
-    permissions?.has(PermissionFlagsBits.ManageChannels) ||
-    permissions?.has(PermissionFlagsBits.ManageGuild) ||
-    permissions?.has(PermissionFlagsBits.Administrator);
-  if (!allowed) {
+  if (!userSharesRoleWithBot(guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
     await interaction.reply({
-      content:
-        'Você precisa de uma destas permissões no servidor para usar o setup: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      content: 'Você não tem permissão para executar este comando',
       ephemeral: true,
     });
     return;

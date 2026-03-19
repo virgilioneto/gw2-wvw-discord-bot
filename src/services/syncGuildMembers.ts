@@ -13,6 +13,14 @@ import {
 
 export type RecruitmentMessageToConfirm = { channelId: string; messageId: string };
 
+/** Discord user ids dos membros que passaram a CONFIRMED e têm recruitment_channel_id e recruitment_message_id. */
+export type ConfirmedRecruitmentUserId = string;
+
+/** Discord user ids dos membros que passaram a CONFIRMED, têm discord_user preenchido,
+ *  mas não possuem recruitment_channel_id/message_id (para envio via DM).
+ */
+export type ConfirmedWithoutRecruitmentUserId = string;
+
 export type SyncMembersResult =
   | {
       ok: true;
@@ -20,6 +28,8 @@ export type SyncMembersResult =
       pendingDiscordDataCount: number;
       confirmedCount: number;
       recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[];
+      confirmedRecruitmentDiscordUserIds: ConfirmedRecruitmentUserId[];
+      confirmedWithoutRecruitmentDiscordUserIds: ConfirmedWithoutRecruitmentUserId[];
     }
   | { ok: false; error: string };
 
@@ -36,6 +46,8 @@ export async function syncMembersForGuild(
   let pendingGuildDataCount = 0;
   let pendingDiscordDataCount = 0;
   const recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[] = [];
+  const confirmedRecruitmentDiscordUserIds: ConfirmedRecruitmentUserId[] = [];
+  const confirmedWithoutRecruitmentDiscordUserIds: ConfirmedWithoutRecruitmentUserId[] = [];
 
   const dbMembers = await GuildMember.find({ guild_id: guildId }).lean<IGuildMember[]>();
   const dbMembersMap = new Map<string, IGuildMember>(dbMembers.map((m) => [m.account_id, m]));
@@ -50,11 +62,16 @@ export async function syncMembersForGuild(
 
       if (dbMember?.status === 'PENDING_GUILD_DATA') {
         const confirmResult = await confirmFromGuildData(guildId, accountId, joined);
-        if (confirmResult.channelId && confirmResult.messageId) {
-          recruitmentMessagesToConfirm.push({
-            channelId: confirmResult.channelId,
-            messageId: confirmResult.messageId,
-          });
+        if (dbMember.discord_user) {
+          if (confirmResult.channelId && confirmResult.messageId) {
+            recruitmentMessagesToConfirm.push({
+              channelId: confirmResult.channelId,
+              messageId: confirmResult.messageId,
+            });
+            confirmedRecruitmentDiscordUserIds.push(dbMember.discord_user);
+          } else {
+            confirmedWithoutRecruitmentDiscordUserIds.push(dbMember.discord_user);
+          }
         }
         confirmedCount++;
       }
@@ -77,5 +94,7 @@ export async function syncMembersForGuild(
     pendingDiscordDataCount,
     confirmedCount,
     recruitmentMessagesToConfirm,
+    confirmedRecruitmentDiscordUserIds,
+    confirmedWithoutRecruitmentDiscordUserIds,
   };
 }

@@ -7,8 +7,13 @@ import {
 } from 'discord.js';
 import { connectDatabase } from './database/connection';
 import { handleGuildMemberUpdate } from './events/guildMemberUpdate';
-import { handleDirectMessage, handleRecruitmentChannelMessage } from './events/messageCreate';
-import { handleJoinCommand, handleJoinModalSubmit } from './commands/join';
+import {
+  handleDirectMessage,
+  handleRecruitmentChannelMessage,
+  handleBotMentionRecruitmentMessage,
+  handleMessageTypeChoiceButton,
+} from './events/messageCreate';
+import { handleSignupCommand, handleSignupModalSubmit } from './commands/signup';
 import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
 import { handleSyncCommand } from './commands/sync';
 import { handlePendingPlayersCommand } from './commands/pendingPlayers';
@@ -44,12 +49,13 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
 client.on(Events.MessageCreate, (message) => {
   handleDirectMessage(message).catch(console.error);
   handleRecruitmentChannelMessage(message).catch(console.error);
+  handleBotMentionRecruitmentMessage(message).catch(console.error);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'entrar') {
-      await handleJoinCommand(interaction);
+    if (interaction.commandName === 'registrar') {
+      await handleSignupCommand(interaction);
       return;
     }
     if (interaction.commandName === 'configurar') {
@@ -70,14 +76,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
   if (interaction.type === InteractionType.ModalSubmit) {
-    if (interaction.customId === 'join_modal') {
-      await handleJoinModalSubmit(interaction);
+    if (interaction.customId === 'signup_modal') {
+      await handleSignupModalSubmit(interaction);
       return;
     }
     if (interaction.customId === 'setup_modal') {
       await handleSetupModalSubmit(interaction);
       return;
     }
+  }
+  if (interaction.isMessageComponent()) {
+    const handled = await handleMessageTypeChoiceButton(interaction);
+    if (handled) return;
   }
   if (interaction.isStringSelectMenu()) {
     const handled = await handleSetupSelectMenu(interaction);

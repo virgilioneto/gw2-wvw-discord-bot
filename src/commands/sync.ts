@@ -1,37 +1,23 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, type TextChannel } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { syncMembersForGuild } from '../services/syncGuildMembers';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
-
-const SETUP_PERMISSIONS =
-  PermissionFlagsBits.ManageRoles |
-  PermissionFlagsBits.ManageChannels |
-  PermissionFlagsBits.ManageGuild |
-  PermissionFlagsBits.Administrator;
+import { userSharesRoleWithBot } from '../utils/roleCheck';
 
 export const syncCommand = new SlashCommandBuilder()
   .setName('atualizar')
-  .setDescription('Sincroniza os membros da guilda com a API do Guild Wars 2 (mesmo processo do job).')
-  .setDefaultMemberPermissions(SETUP_PERMISSIONS)
+  .setDescription('[ADM] Sincroniza membros da guilda com a API do Guild Wars 2.')
   .toJSON();
 
 export async function handleSyncCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const discordServerId = interaction.guildId;
-  if (!discordServerId) {
+  if (!discordServerId || !interaction.guild) {
     await interaction.reply({ content: 'Este comando só pode ser usado em um servidor.', ephemeral: true });
     return;
   }
-
-  const permissions = interaction.memberPermissions;
-  const allowed =
-    permissions?.has(PermissionFlagsBits.ManageRoles) ||
-    permissions?.has(PermissionFlagsBits.ManageChannels) ||
-    permissions?.has(PermissionFlagsBits.ManageGuild) ||
-    permissions?.has(PermissionFlagsBits.Administrator);
-  if (!allowed) {
+  if (!userSharesRoleWithBot(interaction.guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
     await interaction.reply({
-      content:
-        'Você precisa de uma destas permissões no servidor para usar o sync: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      content: 'Você não tem permissão para executar este comando',
       ephemeral: true,
     });
     return;
@@ -59,6 +45,40 @@ export async function handleSyncCommand(interaction: ChatInputCommandInteraction
   if (guild && result.recruitmentMessagesToConfirm?.length) {
     for (const { channelId, messageId } of result.recruitmentMessagesToConfirm) {
       await reactRecruitmentMessageConfirmed(guild, channelId, messageId);
+    }
+  }
+
+  const recruitmentDmContent = guildDoc.recruitment_message?.content?.trim();
+  if (
+    recruitmentDmContent &&
+    result.confirmedWithoutRecruitmentDiscordUserIds?.length
+  ) {
+    for (const userId of result.confirmedWithoutRecruitmentDiscordUserIds) {
+      try {
+        const user = await interaction.client.users.fetch(userId);
+        await user.send(recruitmentDmContent).catch(() => {});
+      } catch {
+        // ignora falha em DM individual
+      }
+    }
+  }
+
+  const recruitmentContent = guildDoc.recruitment_message?.content?.trim();
+  if (
+    recruitmentContent &&
+    result.confirmedRecruitmentDiscordUserIds?.length > 0 &&
+    guildDoc.recruitment_channel &&
+    guild
+  ) {
+    const channel = await guild.channels.fetch(guildDoc.recruitment_channel).catch(() => null);
+    if (channel?.isTextBased()) {
+      const mentions = result.confirmedRecruitmentDiscordUserIds.map((id) => `<@${id}>`).join(' ');
+      await (channel as TextChannel)
+        .send({
+          content: `${mentions}\n${recruitmentContent}`,
+          allowedMentions: { users: result.confirmedRecruitmentDiscordUserIds },
+        })
+        .catch(console.error);
     }
   }
 

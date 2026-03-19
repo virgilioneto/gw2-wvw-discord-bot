@@ -1,38 +1,24 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { findPendingWvwMembers } from '../services/guildMemberService';
-
-const SETUP_PERMISSIONS =
-  PermissionFlagsBits.ManageRoles |
-  PermissionFlagsBits.ManageChannels |
-  PermissionFlagsBits.ManageGuild |
-  PermissionFlagsBits.Administrator;
+import { userSharesRoleWithBot } from '../utils/roleCheck';
 
 export const pendingPlayersCommand = new SlashCommandBuilder()
   .setName('jogadores-pendente')
-  .setDescription('Mostra jogadores que não definiram a guilda como WvW no jogo.')
-  .setDefaultMemberPermissions(SETUP_PERMISSIONS)
+  .setDescription('[ADM] Mostra jogadores que não definiram a guilda como WvW no jogo.')
   .toJSON();
 
 export async function handlePendingPlayersCommand(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   const discordServerId = interaction.guildId;
-  if (!discordServerId) {
+  if (!discordServerId || !interaction.guild) {
     await interaction.reply({ content: 'Este comando só pode ser usado em um servidor.', ephemeral: true });
     return;
   }
-
-  const permissions = interaction.memberPermissions;
-  const allowed =
-    permissions?.has(PermissionFlagsBits.ManageRoles) ||
-    permissions?.has(PermissionFlagsBits.ManageChannels) ||
-    permissions?.has(PermissionFlagsBits.ManageGuild) ||
-    permissions?.has(PermissionFlagsBits.Administrator);
-  if (!allowed) {
+  if (!userSharesRoleWithBot(interaction.guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
     await interaction.reply({
-      content:
-        'Você precisa de uma destas permissões no servidor para usar este comando: **Gerenciar Cargos**, **Gerenciar Canais**, **Gerenciar Servidor** ou **Administrador**.',
+      content: 'Você não tem permissão para executar este comando',
       ephemeral: true,
     });
     return;

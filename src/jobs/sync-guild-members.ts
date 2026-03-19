@@ -1,8 +1,7 @@
 /**
  * Job: Sincroniza os membros de todas as guilds com a API do Guild Wars 2.
- * Conecta no MongoDB, lista as guilds, consulta a API de membros de cada uma
- * e faz upsert na collection guild_members (mesmo processo do /setup e /sync).
- * Quando um membro passa a CONFIRMED, reage com :white_check_mark: na mensagem de recrutamento.
+ * Mesmas regras do comando /atualizar: reação em mensagens de recrutamento,
+ * DM e mensagem no canal para confirmados, e atribuição de member_role quando aplicável.
  *
  * Uso: npm run job:sync-members
  */
@@ -10,8 +9,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { syncMembersForGuild } from '../services/syncGuildMembers';
-import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import { syncMembersForGuild, applyPostSyncActions } from '../services/syncGuildMembers';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -21,7 +19,9 @@ async function run(): Promise<void> {
   await mongoose.connect(MONGODB_URI);
   console.log('Conectado.\n');
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  });
   if (DISCORD_TOKEN) {
     await client.login(DISCORD_TOKEN);
     await new Promise<void>((resolve, reject) => {
@@ -29,7 +29,7 @@ async function run(): Promise<void> {
       client.once('error', reject);
     });
   } else {
-    console.warn('DISCORD_TOKEN não definido: mensagens de recrutamento não serão marcadas com ✅.\n');
+    console.warn('DISCORD_TOKEN não definido: recrutamento e roles não serão aplicados.\n');
   }
 
   const guilds = await Guild.find({}).exec();
@@ -51,12 +51,10 @@ async function run(): Promise<void> {
       pendingDiscordDataCount += result.pendingDiscordDataCount;
       confirmedCount += result.confirmedCount;
 
-      if (client.isReady() && result.recruitmentMessagesToConfirm?.length) {
+      if (client.isReady()) {
         const discordGuild = await client.guilds.fetch(guild.discord_server_id).catch(() => null);
         if (discordGuild) {
-          for (const { channelId, messageId } of result.recruitmentMessagesToConfirm) {
-            await reactRecruitmentMessageConfirmed(discordGuild, channelId, messageId);
-          }
+          await applyPostSyncActions(discordGuild, guild, result);
         }
       }
     } else {

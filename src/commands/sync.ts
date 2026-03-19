@@ -1,7 +1,6 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, type TextChannel } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { Guild } from '../models/Guild';
-import { syncMembersForGuild } from '../services/syncGuildMembers';
-import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import { syncMembersForGuild, applyPostSyncActions } from '../services/syncGuildMembers';
 import { userSharesRoleWithBot } from '../utils/roleCheck';
 
 export const syncCommand = new SlashCommandBuilder()
@@ -42,44 +41,8 @@ export async function handleSyncCommand(interaction: ChatInputCommandInteraction
   }
 
   const guild = interaction.guild;
-  if (guild && result.recruitmentMessagesToConfirm?.length) {
-    for (const { channelId, messageId } of result.recruitmentMessagesToConfirm) {
-      await reactRecruitmentMessageConfirmed(guild, channelId, messageId);
-    }
-  }
-
-  const recruitmentDmContent = guildDoc.recruitment_message?.content?.trim();
-  if (
-    recruitmentDmContent &&
-    result.confirmedWithoutRecruitmentDiscordUserIds?.length
-  ) {
-    for (const userId of result.confirmedWithoutRecruitmentDiscordUserIds) {
-      try {
-        const user = await interaction.client.users.fetch(userId);
-        await user.send(recruitmentDmContent).catch(() => {});
-      } catch {
-        // ignora falha em DM individual
-      }
-    }
-  }
-
-  const recruitmentContent = guildDoc.recruitment_message?.content?.trim();
-  if (
-    recruitmentContent &&
-    result.confirmedRecruitmentDiscordUserIds?.length > 0 &&
-    guildDoc.recruitment_channel &&
-    guild
-  ) {
-    const channel = await guild.channels.fetch(guildDoc.recruitment_channel).catch(() => null);
-    if (channel?.isTextBased()) {
-      const mentions = result.confirmedRecruitmentDiscordUserIds.map((id) => `<@${id}>`).join(' ');
-      await (channel as TextChannel)
-        .send({
-          content: `${mentions}\n${recruitmentContent}`,
-          allowedMentions: { users: result.confirmedRecruitmentDiscordUserIds },
-        })
-        .catch(console.error);
-    }
+  if (guild) {
+    await applyPostSyncActions(guild, guildDoc, result);
   }
 
   await interaction.editReply({

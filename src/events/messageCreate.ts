@@ -251,7 +251,7 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
 
   const dm = await sendRecruitmentDm(
     message.author,
-    { content: `ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.` }
+    { content: `ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.\nEm breve um dos oficiais da guilda irá lhe enviar um invite no jogo.` }
   );
   if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
   else await message.react('☑').catch(() => {});

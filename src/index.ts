@@ -18,6 +18,7 @@ import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } fro
 import { handleSyncCommand } from './commands/sync';
 import { handlePendingPlayersCommand } from './commands/pendingPlayers';
 import { handleManualIncludeCommand } from './commands/manualInclude';
+import { handleSetMemberRoleCommand, handleSetMemberRoleSelect } from './commands/setMemberRole';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
@@ -74,6 +75,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleManualIncludeCommand(interaction);
       return;
     }
+    if (interaction.commandName === 'role-membro') {
+      await handleSetMemberRoleCommand(interaction);
+      return;
+    }
   }
   if (interaction.type === InteractionType.ModalSubmit) {
     if (interaction.customId === 'signup_modal') {
@@ -90,6 +95,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (handled) return;
   }
   if (interaction.isStringSelectMenu()) {
+    const handledMemberRole = await handleSetMemberRoleSelect(interaction);
+    if (handledMemberRole) return;
     const handled = await handleSetupSelectMenu(interaction);
     if (handled) return;
   }

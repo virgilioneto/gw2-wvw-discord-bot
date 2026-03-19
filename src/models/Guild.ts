@@ -19,6 +19,8 @@ export interface IGuild extends Document {
   recruitment_channel: string;
   notify_channel: string;
   notification_roles: string[];
+  /** Role de membro selecionada no comando "Selecionar Role de Membro". */
+  member_role?: string;
   recruitment_message?: IRecruitmentMessagePayload;
   /** Conteúdo completo da mensagem de notificação (para reenvio). */
   notification_message?: INotificationMessagePayload;
@@ -42,6 +44,7 @@ const GuildSchema: Schema = new Schema({
   recruitment_channel: { type: String, default: '' },
   notify_channel: { type: String, default: '' },
   notification_roles: { type: [String], default: [] },
+  member_role: { type: String, default: '' },
   recruitment_message: { type: recruitmentMessageSchema, default: undefined },
   notification_message: { type: recruitmentMessageSchema, default: undefined },
 });

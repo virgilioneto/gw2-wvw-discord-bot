@@ -58,6 +58,8 @@ jobs:
           source: gw2-wvw-discord-bot.tar.gz
           target: ~/gw2-wvw-discord-bot
   server-commands:
+    depends-on:
+      - build-and-scp
     runs-on: ubuntu-latest
     steps:
       - name: Extrair no servidor e remover o .tar.gz

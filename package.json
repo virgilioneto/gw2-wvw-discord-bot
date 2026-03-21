@@ -9,15 +9,18 @@
     "dev": "ts-node-dev --respawn --debug --watch src src/index.ts",
     "deploy": "ts-node src/deploy-commands.ts",
     "job:sync-members": "ts-node src/jobs/sync-guild-members.ts",
-    "job:notify-wvw": "ts-node src/jobs/notify-wvw-members.ts"
+    "job:notify-wvw": "ts-node src/jobs/notify-wvw-members.ts",
+    "db:migrate": "sequelize-cli db:migrate"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "mongoose": "^8.0.3",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "pg": "^8.13.1",
+    "sequelize": "^6.37.5"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "sequelize-cli": "^6.6.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.2"

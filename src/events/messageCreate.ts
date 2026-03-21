@@ -98,7 +98,7 @@ export async function handleDirectMessage(message: Message): Promise<void> {
       return;
     }
 
-    const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+    const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
     if (!guildDoc) {
       pendingGameIdByUser.delete(message.author.id);
       return;
@@ -128,7 +128,7 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
   if (message.author.bot) return;
   if (!message.guildId) return;
 
-  const guildDoc = await Guild.findOne({ discord_server_id: message.guildId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: message.guildId } });
   if (!guildDoc?.recruitment_channel || guildDoc.recruitment_channel !== message.channelId) return;
 
   const match = message.content.trim().match(GAME_ID_REGEX);
@@ -285,7 +285,7 @@ export async function handleBotMentionRecruitmentMessage(message: Message): Prom
   const repliedToId = message.reference?.messageId;
   if (!repliedToId) return;
 
-  const guildDoc = await Guild.findOne({ discord_server_id: message.guildId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: message.guildId } });
   if (!guildDoc) return;
 
   const member = message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
@@ -354,10 +354,7 @@ export async function handleMessageTypeChoiceButton(
   const field = customId === MSG_TYPE_RECRUITMENT ? 'recruitment_message' : 'notification_message';
   const label = customId === MSG_TYPE_RECRUITMENT ? 'recruitment_message' : 'notification_message';
 
-  await Guild.findOneAndUpdate(
-    { discord_server_id: pending.discordServerId },
-    { $set: { [field]: pending.payload } }
-  ).exec();
+  await Guild.update({ [field]: pending.payload }, { where: { discord_server_id: pending.discordServerId } });
 
   await interaction.update({
     content: `Salvo em **${label}**. (pode sobrescrever respondendo outra mensagem e escolhendo de novo.)`,

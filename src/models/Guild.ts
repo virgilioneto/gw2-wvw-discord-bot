@@ -1,4 +1,5 @@
-import mongoose, { Schema, Document, Model } from 'mongoose';
+import { DataTypes, Model, Optional } from 'sequelize';
+import { sequelize } from '../database/sequelize';
 
 /** Payload serializado de uma mensagem para o bot poder reenviá-la (ex.: mensagem de recrutamento). */
 export interface IRecruitmentMessagePayload {
@@ -11,7 +12,8 @@ export interface IRecruitmentMessagePayload {
 /** Payload completo da mensagem de notificação (mesmo formato de recruitment_message). */
 export type INotificationMessagePayload = IRecruitmentMessagePayload;
 
-export interface IGuild extends Document {
+export interface IGuildAttributes {
+  id: number;
   guild_id: string;
   discord_server_id: string;
   name: string;
@@ -19,34 +21,61 @@ export interface IGuild extends Document {
   recruitment_channel: string;
   notify_channel: string;
   notification_roles: string[];
-  /** Role de membro selecionada no comando "Selecionar Role de Membro". */
-  member_role?: string;
-  recruitment_message?: IRecruitmentMessagePayload;
-  /** Conteúdo completo da mensagem de notificação (para reenvio). */
-  notification_message?: INotificationMessagePayload;
+  member_role: string | null;
+  recruitment_message: IRecruitmentMessagePayload | null;
+  notification_message: INotificationMessagePayload | null;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-const recruitmentMessageSchema = new Schema(
+export type IGuild = IGuildAttributes;
+
+type GuildCreationAttributes = Optional<
+  IGuildAttributes,
+  | 'id'
+  | 'recruitment_channel'
+  | 'notify_channel'
+  | 'notification_roles'
+  | 'member_role'
+  | 'recruitment_message'
+  | 'notification_message'
+  | 'created_at'
+  | 'updated_at'
+>;
+
+export class Guild extends Model<IGuildAttributes, GuildCreationAttributes> implements IGuildAttributes {
+  declare id: number;
+  declare guild_id: string;
+  declare discord_server_id: string;
+  declare name: string;
+  declare api_key: string;
+  declare recruitment_channel: string;
+  declare notify_channel: string;
+  declare notification_roles: string[];
+  declare member_role: string | null;
+  declare recruitment_message: IRecruitmentMessagePayload | null;
+  declare notification_message: INotificationMessagePayload | null;
+  declare readonly created_at: Date;
+  declare readonly updated_at: Date;
+}
+
+Guild.init(
   {
-    content: { type: String, default: '' },
-    embeds: { type: [Schema.Types.Mixed], default: undefined },
-    components: { type: [Schema.Types.Mixed], default: undefined },
-    attachment_urls: [{ url: String, name: String }],
+    id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    guild_id: { type: DataTypes.STRING, allowNull: false, unique: true },
+    discord_server_id: { type: DataTypes.STRING, allowNull: false, unique: true },
+    name: { type: DataTypes.STRING, allowNull: false },
+    api_key: { type: DataTypes.STRING(512), allowNull: false },
+    recruitment_channel: { type: DataTypes.STRING, allowNull: false, defaultValue: '' },
+    notify_channel: { type: DataTypes.STRING, allowNull: false, defaultValue: '' },
+    notification_roles: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
+    member_role: { type: DataTypes.STRING, allowNull: true },
+    recruitment_message: { type: DataTypes.JSONB, allowNull: true },
+    notification_message: { type: DataTypes.JSONB, allowNull: true },
   },
-  { _id: false }
+  {
+    sequelize,
+    tableName: 'guilds',
+    modelName: 'Guild',
+  }
 );
-
-const GuildSchema: Schema = new Schema({
-  guild_id: { type: String, required: true, unique: true },
-  discord_server_id: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  api_key: { type: String, required: true },
-  recruitment_channel: { type: String, default: '' },
-  notify_channel: { type: String, default: '' },
-  notification_roles: { type: [String], default: [] },
-  member_role: { type: String, default: '' },
-  recruitment_message: { type: recruitmentMessageSchema, default: undefined },
-  notification_message: { type: recruitmentMessageSchema, default: undefined },
-});
-
-export const Guild: Model<IGuild> = mongoose.model<IGuild>('Guild', GuildSchema);

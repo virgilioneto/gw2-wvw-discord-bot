@@ -58,7 +58,7 @@ export async function handleSignupCommand(interaction: ChatInputCommandInteracti
     return;
   }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) {
     await interaction.reply({
       content: 'Este servidor ainda não possui uma guilda configurada. Peça a um administrador para usar `/configurar`.',
@@ -93,7 +93,7 @@ export async function handleSignupModalSubmit(interaction: ModalSubmitInteractio
       return;
     }
 
-    const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+    const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
     if (!guildDoc) {
       await interaction.reply({ content: 'Guilda não encontrada para este servidor.', ephemeral: true });
       return;

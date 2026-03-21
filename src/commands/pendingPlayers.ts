@@ -24,7 +24,7 @@ export async function handlePendingPlayersCommand(
     return;
   }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) {
     await interaction.reply({
       content: 'Este servidor ainda não possui uma guilda configurada. Use `/setup` primeiro.',
@@ -40,6 +40,7 @@ export async function handlePendingPlayersCommand(
 
   const lines: string[] = [];
   for (const m of members) {
+    if (!m.discord_user) continue;
     let discordName: string;
     try {
       const user = await interaction.client.users.fetch(m.discord_user);

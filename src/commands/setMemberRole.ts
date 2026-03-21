@@ -51,7 +51,7 @@ export async function handleSetMemberRoleCommand(
     return;
   }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) {
     await interaction.reply({
       content: 'Este servidor ainda não possui uma guilda configurada. Use `/configurar` primeiro.',
@@ -60,7 +60,7 @@ export async function handleSetMemberRoleCommand(
     return;
   }
 
-  const options = getGuildRoleOptions(interaction.guild, guildDoc.member_role);
+  const options = getGuildRoleOptions(interaction.guild, guildDoc.member_role ?? undefined);
   if (options.length === 0) {
     await interaction.reply({
       content: 'Não há roles disponíveis neste servidor (além de @everyone).',
@@ -107,7 +107,7 @@ export async function handleSetMemberRoleSelect(
     return true;
   }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) {
     await interaction.reply({ content: 'Guilda não encontrada para este servidor.', ephemeral: true }).catch(() => {});
     return true;
@@ -116,10 +116,7 @@ export async function handleSetMemberRoleSelect(
   const role = interaction.guild.roles.cache.get(roleId);
   const roleName = role?.name ?? roleId;
 
-  await Guild.findOneAndUpdate(
-    { discord_server_id: discordServerId },
-    { $set: { member_role: roleId } }
-  ).exec();
+  await Guild.update({ member_role: roleId }, { where: { discord_server_id: discordServerId } });
 
   await interaction.update({
     content: `Role de membro selecionada: **${roleName}**.`,

@@ -1,8 +1,10 @@
-import mongoose from 'mongoose';
+import { sequelize } from './sequelize';
 
-export async function connectDatabase(uri: string): Promise<void> {
-  await mongoose.connect(uri, {
-    family: 4,
-  });
-  console.log('Conectado ao MongoDB');
+export async function connectDatabase(): Promise<void> {
+  await sequelize.authenticate();
+  console.log('Conectado ao PostgreSQL');
+}
+
+export async function disconnectDatabase(): Promise<void> {
+  await sequelize.close();
 }

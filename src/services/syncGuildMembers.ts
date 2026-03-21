@@ -45,12 +45,12 @@ export type SyncMembersResult =
 
 /** Config da guilda necessária para aplicar ações pós-sync (recrutamento, member_role). */
 export type PostSyncGuildConfig = {
-  /** guild_id GW2 (coleção guild_members) */
+  /** guild_id GW2 (tabela guild_members) */
   guild_id: string;
-  recruitment_message?: IRecruitmentMessagePayload;
+  recruitment_message?: IRecruitmentMessagePayload | null;
   recruitment_channel?: string;
-  notification_roles?: string[];
-  member_role?: string;
+  notification_roles?: string[] | null;
+  member_role?: string | null;
 };
 
 /**
@@ -163,7 +163,8 @@ export async function syncMembersForGuild(
   const confirmedRecruitmentDiscordUserIds: ConfirmedRecruitmentUserId[] = [];
   const confirmedWithoutRecruitmentDiscordUserIds: ConfirmedWithoutRecruitmentUserId[] = [];
 
-  const dbMembers = await GuildMember.find({ guild_id: guildId }).lean<IGuildMember[]>();
+  const dbRows = await GuildMember.findAll({ where: { guild_id: guildId } });
+  const dbMembers = dbRows.map((m) => m.toJSON() as IGuildMember);
   const dbMembersMap = new Map<string, IGuildMember>(dbMembers.map((m) => [m.account_id, m]));
 
   const apiMembers = result.members;

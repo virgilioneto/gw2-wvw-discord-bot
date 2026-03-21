@@ -1,4 +1,4 @@
-# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PASSWORD, DISCORD_TOKEN, CLIENT_ID, MONGODB_URI
+# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PASSWORD e um secret por variável em .env.example (ex.: DISCORD_TOKEN, CLIENT_ID, POSTGRES_URI)
 name: Build e envio via SCP
 
 on:
@@ -29,14 +29,22 @@ jobs:
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          POSTGRES_URI: ${{ secrets.POSTGRES_URI }}
         run: |
           set -e
           mkdir -p .deploy
           cp -a dist/. .deploy/
           cp package.json package-lock.json .deploy/
           cp -a pm2 .deploy/
-          envsubst '$DISCORD_TOKEN $CLIENT_ID $MONGODB_URI' < .env.example > .deploy/.env
+          cp -a config .deploy/
+          cp -a migrations .deploy/
+          cp .sequelizerc .deploy/
+          VARS=$(grep -oE '\$[A-Za-z_][A-Za-z0-9_]*' .env.example | sort -u | tr '\n' ' ')
+          if [ -n "$VARS" ]; then
+            envsubst "$VARS" < .env.example > .deploy/.env
+          else
+            cp .env.example .deploy/.env
+          fi
           tar -czf gw2-wvw-discord-bot.tar.gz -C .deploy .
           rm -rf .deploy
 
@@ -74,6 +82,30 @@ jobs:
             set -e
             cd "$HOME/gw2-wvw-discord-bot"
             npm i --omit=dev
+
+      - name: Migrações do banco (sequelize-cli)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          port: 22
+          script: |
+            set -e
+            cd "$HOME/gw2-wvw-discord-bot"
+            npx sequelize-cli db:migrate
+
+      - name: Registrar comandos Discord (deploy-commands.js)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          port: 22
+          script: |
+            set -e
+            cd "$HOME/gw2-wvw-discord-bot"
+            node deploy-commands.js
 
       - name: PM2 ecosystem
         uses: appleboy/ssh-action@v1

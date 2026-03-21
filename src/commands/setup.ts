@@ -146,7 +146,7 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
       return false;
     }
     pendingGuildName.set(key, guildName);
-    const existing = await Guild.findOne({ discord_server_id: interaction.guildId }).exec();
+    const existing = await Guild.findOne({ where: { discord_server_id: interaction.guildId! } });
     const modal = buildSetupModal(
       existing ? 'Alterar Guild' : 'Configurar guilda',
       interaction,
@@ -190,7 +190,7 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   let recruitmentChannelId = interaction.fields.getStringSelectValues(SETUP_RECRUITMENT_CHANNEL_ID)?.[0] ?? '';
   let notifyChannelId = interaction.fields.getStringSelectValues(SETUP_NOTIFY_CHANNEL_ID)?.[0] ?? '';
 
-  const existingGuild = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const existingGuild = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (existingGuild && !apiKey) {
     apiKey = existingGuild.api_key;
   }
@@ -223,21 +223,27 @@ export async function handleSetupModalSubmit(interaction: ModalSubmitInteraction
   pendingNotifyChannel.delete(pendingKey);
   pendingRoles.delete(pendingKey);
 
-  await Guild.findOneAndUpdate(
-    { discord_server_id: discordServerId },
-    {
-      $set: {
-        guild_id: guildId,
-        discord_server_id: discordServerId,
-        name: guildName,
-        api_key: apiKey,
-        ...(recruitmentChannelId ? { recruitment_channel: recruitmentChannelId } : {}),
-        ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
-        notification_roles: roleIds.filter((id) => id !== '__none__'),
-      },
-    },
-    { upsert: true, new: true }
-  ).exec();
+  const filteredRoles = roleIds.filter((id) => id !== '__none__');
+  if (existingGuild) {
+    await existingGuild.update({
+      guild_id: guildId,
+      name: guildName,
+      api_key: apiKey,
+      ...(recruitmentChannelId ? { recruitment_channel: recruitmentChannelId } : {}),
+      ...(notifyChannelId ? { notify_channel: notifyChannelId } : {}),
+      notification_roles: filteredRoles,
+    });
+  } else {
+    await Guild.create({
+      guild_id: guildId,
+      discord_server_id: discordServerId,
+      name: guildName,
+      api_key: apiKey,
+      recruitment_channel: recruitmentChannelId || '',
+      notify_channel: notifyChannelId || '',
+      notification_roles: filteredRoles,
+    });
+  }
 
   for (const m of membersResult.members) {
     await upsertFromSetup(guildId, m);

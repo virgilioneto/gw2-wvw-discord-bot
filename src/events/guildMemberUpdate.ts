@@ -14,7 +14,7 @@ export async function handleGuildMemberUpdate(
   const discordServerId = newMember.guild?.id;
   if (!discordServerId) return;
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) return;
 
   const guildRoleIds = Array.isArray(guildDoc?.notification_roles) ? guildDoc?.notification_roles : [];

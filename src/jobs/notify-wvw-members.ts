@@ -10,7 +10,6 @@
  * Uso: npm run job:notify-wvw
  */
 import 'dotenv/config';
-import mongoose from 'mongoose';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Guild, type IGuild } from '../models/Guild';
 import { findPendingWvwMembers } from '../services/guildMemberService';
@@ -19,6 +18,7 @@ import {
   fetchPreparedAttachmentsFromUrls,
   toAttachmentBuilders,
 } from '../utils/storedMessagePayload';
+import { connectDatabase, disconnectDatabase } from '../database/connection';
 
 const DEFAULT_NOTIFY_TEXT =
   'Vocês ainda não estão com a guilda configurada como Battle Guild.';
@@ -31,7 +31,6 @@ function getNotificationBodyText(guildDoc: IGuild): string {
   return trimmed || DEFAULT_NOTIFY_TEXT;
 }
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 if (!DISCORD_TOKEN) {
@@ -45,29 +44,17 @@ const client = new Client({
 
 /** Dia do mês (1-31) da primeira sexta-feira do mês. */
 function getFirstFridayDayOfMonth(year: number, month: number): Date {
-// Create a Date object for the first day of the specified month
-    // JavaScript months are 0-indexed (0=Jan, 11=Dec), so 'month' argument is used as is.
-    var firstDayOfMonth = new Date(year, month, 1);
-    
-    // Get the day of the week for the first day of the month (0=Sun, 1=Mon, ..., 6=Sat)
-    var dayOfWeek = firstDayOfMonth.getDay();
-    
-    // Friday is represented by the number 5
-    var FRIDAY = 5;
-    
-    // Calculate how many days to advance from the first of the month to the first Friday
-    var daysUntilFirstFriday;
-    if (dayOfWeek <= FRIDAY) {
-        daysUntilFirstFriday = FRIDAY - dayOfWeek;
-    } else {
-        // If the first day is after Friday (Sat/Sun), advance to the next week's Friday
-        daysUntilFirstFriday = FRIDAY + (7 - dayOfWeek);
-    }
-    
-    // Set the date of the first day to the calculated first Friday
-    firstDayOfMonth.setDate(firstDayOfMonth.getDate() + daysUntilFirstFriday);
-    
-    return firstDayOfMonth;
+  const firstDayOfMonth = new Date(year, month, 1);
+  const dayOfWeek = firstDayOfMonth.getDay();
+  const FRIDAY = 5;
+  let daysUntilFirstFriday;
+  if (dayOfWeek <= FRIDAY) {
+    daysUntilFirstFriday = FRIDAY - dayOfWeek;
+  } else {
+    daysUntilFirstFriday = FRIDAY + (7 - dayOfWeek);
+  }
+  firstDayOfMonth.setDate(firstDayOfMonth.getDate() + daysUntilFirstFriday);
+  return firstDayOfMonth;
 }
 
 /** Verifica se hoje é sábado ou segunda que antecedem a primeira sexta do mês. */
@@ -76,7 +63,7 @@ function shouldRunToday(): boolean {
   const year = now.getFullYear();
   const month = now.getMonth();
   const day = now.getDate();
-  const dayOfWeek = now.getDay(); // 0=Dom, 6=Sab, 1=Seg
+  const dayOfWeek = now.getDay();
 
   const firstFriday = getFirstFridayDayOfMonth(year, month);
   const saturdayBefore = firstFriday.getDate() - 6;
@@ -97,8 +84,8 @@ async function run(): Promise<void> {
     process.exit(0);
   }
 
-  console.log('Conectando ao MongoDB...');
-  await mongoose.connect(MONGODB_URI);
+  console.log('Conectando ao PostgreSQL...');
+  await connectDatabase();
   console.log('Conectado.\n');
 
   console.log('Conectando ao Discord...');
@@ -106,7 +93,7 @@ async function run(): Promise<void> {
   await new Promise<void>((resolve) => client.once('ready', () => resolve()));
   console.log(`Bot conectado como ${client.user?.tag}\n`);
 
-  const guilds = await Guild.find({}).exec();
+  const guilds = await Guild.findAll();
   console.log(`Encontrada(s) ${guilds.length} guilda(s).\n`);
 
   let totalSent = 0;
@@ -115,7 +102,6 @@ async function run(): Promise<void> {
   const errors: { guildName: string; userId: string; error: string }[] = [];
 
   for (const guild of guilds) {
-    // Membros que têm pelo menos uma role em comum com as notification_roles da guilda (intersect)
     const guildRoleIds = Array.isArray(guild.notification_roles) ? guild.notification_roles : [];
     const members = await findPendingWvwMembers(guild.guild_id, guildRoleIds);
 
@@ -135,11 +121,11 @@ async function run(): Promise<void> {
           console.log(`[${guild.name}] Servidor Discord não encontrado.`);
           continue;
         }
-        const channel = discordGuild.channels.cache.get(guild.notify_channel) ?? await discordGuild.channels.fetch(guild.notify_channel).catch(() => null);
+        const channel = discordGuild.channels.cache.get(guild.notify_channel) ?? (await discordGuild.channels.fetch(guild.notify_channel).catch(() => null));
         if (channel && 'send' in channel) {
           const mentions = members.map((m) => `<@${m.discord_user}>`).join(' ');
           const bodyText = getNotificationBodyText(guild);
-          const userIds = members.map((m) => m.discord_user);
+          const userIds = members.map((m) => m.discord_user).filter((id): id is string => Boolean(id));
           const notifyFiles = notifyPrepared.length ? toAttachmentBuilders(notifyPrepared) : undefined;
           const fullContent = `${mentions}\n\n${bodyText}`;
 
@@ -180,10 +166,10 @@ async function run(): Promise<void> {
       }
     }
 
-    // Sempre envia DM para cada membro pendente
     console.log(`[${guild.name}] ${members.length} membro(s) sem WvW atribuído. Enviando DMs...`);
 
     for (const member of members) {
+      if (!member.discord_user) continue;
       try {
         const user = await client.users.fetch(member.discord_user);
         const dm = await user.createDM();
@@ -200,7 +186,7 @@ async function run(): Promise<void> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         totalSkipped++;
-        errors.push({ guildName: guild.name, userId: member.discord_user, error: msg });
+        errors.push({ guildName: guild.name, userId: member.discord_user ?? '', error: msg });
         process.stdout.write('x');
       }
     }
@@ -218,7 +204,7 @@ async function run(): Promise<void> {
   }
 
   client.destroy();
-  await mongoose.disconnect();
+  await disconnectDatabase();
   console.log('\nConexões encerradas.');
 }
 

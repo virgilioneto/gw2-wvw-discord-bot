@@ -22,7 +22,7 @@ export async function handleSyncCommand(interaction: ChatInputCommandInteraction
     return;
   }
 
-  const guildDoc = await Guild.findOne({ discord_server_id: discordServerId }).exec();
+  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
   if (!guildDoc) {
     await interaction.reply({
       content: 'Este servidor ainda não possui uma guilda configurada. Use `/setup` primeiro.',

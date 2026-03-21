@@ -21,7 +21,6 @@ import { handleManualIncludeCommand } from './commands/manualInclude';
 import { handleSetMemberRoleCommand, handleSetMemberRoleSelect } from './commands/setMemberRole';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
 
 if (!DISCORD_TOKEN) {
   console.error('Defina DISCORD_TOKEN no .env');
@@ -103,7 +102,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 async function main() {
-  await connectDatabase(MONGODB_URI);
+  await connectDatabase();
   await client.login(DISCORD_TOKEN);
 }
 

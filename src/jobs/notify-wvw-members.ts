@@ -84,7 +84,7 @@ function shouldRunToday(): boolean {
 
   const isSaturdayRun = dayOfWeek === 6 && day === saturdayBefore && saturdayBefore >= 1;
   const isMondayRun = dayOfWeek === 1 && day === mondayBefore && mondayBefore >= 1;
-return true
+
   return isSaturdayRun || isMondayRun;
 }
 

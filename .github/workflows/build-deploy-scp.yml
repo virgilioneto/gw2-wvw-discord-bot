@@ -57,7 +57,9 @@ jobs:
           port: 22
           source: gw2-wvw-discord-bot.tar.gz
           target: ~/gw2-wvw-discord-bot
-
+  server-commands:
+    runs-on: ubuntu-latest
+    steps:
       - name: Extrair no servidor e remover o .tar.gz
         uses: appleboy/ssh-action@v1
         with:

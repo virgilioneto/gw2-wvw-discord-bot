@@ -7,7 +7,5 @@
 module.exports = {
   apps: [
     ...require('./bot.config.cjs').apps,
-    ...require('./sync-guild-members.config.cjs').apps,
-    ...require('./notify-wvw-members.config.cjs').apps,
   ],
 };

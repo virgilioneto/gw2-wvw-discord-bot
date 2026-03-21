@@ -26,7 +26,14 @@ jobs:
         run: npm run build
 
       - name: Criar arquivo gw2-wvw-discord-bot.tar.gz
-        run: tar -czf gw2-wvw-discord-bot.tar.gz -C dist .
+        run: |
+          set -e
+          mkdir -p .deploy
+          cp -a dist/. .deploy/
+          cp package.json package-lock.json .deploy/
+          cp -a pm2 .deploy/
+          tar -czf gw2-wvw-discord-bot.tar.gz -C .deploy .
+          rm -rf .deploy
 
       - name: Enviar via SCP
         uses: appleboy/scp-action@v1

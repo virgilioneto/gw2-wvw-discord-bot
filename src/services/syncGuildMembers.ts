@@ -4,14 +4,22 @@
  * Delega inserções e regras de status ao guildMemberService.
  */
 import type { Guild, TextChannel } from 'discord.js';
+import type { IRecruitmentMessagePayload } from '../models/Guild';
 import { GuildMember, IGuildMember } from '../models/GuildMember';
 import { getGuildMembers, Gw2GuildMember } from './gw2GuildMembers';
 import {
   createFromApiMember,
   markAsPendingGuildData,
   confirmFromGuildData,
+  addMemberRoleToGuildMemberRoles,
 } from './guildMemberService';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
+import {
+  buildEmbedsFromStoredPayload,
+  fetchPreparedAttachmentsFromUrls,
+  hasRenderableMessagePayload,
+  toAttachmentBuilders,
+} from '../utils/storedMessagePayload';
 
 export type RecruitmentMessageToConfirm = { channelId: string; messageId: string };
 
@@ -37,7 +45,9 @@ export type SyncMembersResult =
 
 /** Config da guilda necessária para aplicar ações pós-sync (recrutamento, member_role). */
 export type PostSyncGuildConfig = {
-  recruitment_message?: { content?: string };
+  /** guild_id GW2 (coleção guild_members) */
+  guild_id: string;
+  recruitment_message?: IRecruitmentMessagePayload;
   recruitment_channel?: string;
   notification_roles?: string[];
   member_role?: string;
@@ -59,30 +69,46 @@ export async function applyPostSyncActions(
     await reactRecruitmentMessageConfirmed(discordGuild, channelId, messageId);
   }
 
-  const recruitmentDmContent = guildConfig.recruitment_message?.content?.trim();
-  if (recruitmentDmContent && confirmedWithoutRecruitmentDiscordUserIds?.length) {
+  const recPayload = guildConfig.recruitment_message;
+  if (hasRenderableMessagePayload(recPayload) && confirmedWithoutRecruitmentDiscordUserIds?.length) {
+    const dmEmbeds = buildEmbedsFromStoredPayload(recPayload);
+    const dmPrepared = await fetchPreparedAttachmentsFromUrls(recPayload?.attachment_urls);
+    const dmText = recPayload?.content?.trim();
     for (const userId of confirmedWithoutRecruitmentDiscordUserIds) {
       try {
         const user = await discordGuild.client.users.fetch(userId);
-        await user.send(recruitmentDmContent).catch(() => {});
+        const files = dmPrepared.length ? toAttachmentBuilders(dmPrepared) : undefined;
+        await user
+          .send({
+            content: dmText || undefined,
+            embeds: dmEmbeds,
+            files,
+          })
+          .catch(() => {});
       } catch {
         // ignora falha em DM individual
       }
     }
   }
 
-  const recruitmentContent = guildConfig.recruitment_message?.content?.trim();
   if (
-    recruitmentContent &&
+    hasRenderableMessagePayload(recPayload) &&
     confirmedRecruitmentDiscordUserIds?.length > 0 &&
     guildConfig.recruitment_channel
   ) {
     const channel = await discordGuild.channels.fetch(guildConfig.recruitment_channel).catch(() => null);
     if (channel?.isTextBased()) {
       const mentions = confirmedRecruitmentDiscordUserIds.map((id) => `<@${id}>`).join(' ');
+      const recText = recPayload?.content?.trim();
+      const channelEmbeds = buildEmbedsFromStoredPayload(recPayload);
+      const channelPrepared = await fetchPreparedAttachmentsFromUrls(recPayload?.attachment_urls);
+      const channelFiles = channelPrepared.length ? toAttachmentBuilders(channelPrepared) : undefined;
+      const contentBody = recText ? `${mentions}\n${recText}` : mentions;
       await (channel as TextChannel)
         .send({
-          content: `${mentions}\n${recruitmentContent}`,
+          content: contentBody,
+          embeds: channelEmbeds,
+          files: channelFiles,
           allowedMentions: { users: confirmedRecruitmentDiscordUserIds },
         })
         .catch(console.error);
@@ -90,7 +116,8 @@ export async function applyPostSyncActions(
   }
 
   const memberRoleId = guildConfig.member_role?.trim();
-  if (memberRoleId) {
+  const gw2GuildId = guildConfig.guild_id;
+  if (memberRoleId && gw2GuildId) {
     const notificationRoleIds = Array.isArray(guildConfig.notification_roles) ? guildConfig.notification_roles : [];
     const allConfirmedUserIds = [
       ...(confirmedRecruitmentDiscordUserIds ?? []),
@@ -101,8 +128,17 @@ export async function applyPostSyncActions(
         const member = await discordGuild.members.fetch(userId).catch(() => null);
         if (!member) continue;
         const hasAnyNotificationRole = notificationRoleIds.some((roleId) => member.roles.cache.has(roleId));
-        if (!hasAnyNotificationRole && !member.roles.cache.has(memberRoleId)) {
-          await member.roles.add(memberRoleId).catch(() => {});
+        if (!hasAnyNotificationRole) {
+          if (!member.roles.cache.has(memberRoleId)) {
+            try {
+              await member.roles.add(memberRoleId);
+              await addMemberRoleToGuildMemberRoles(gw2GuildId, userId, memberRoleId);
+            } catch {
+              // falha ao atribuir role no Discord
+            }
+          } else {
+            await addMemberRoleToGuildMemberRoles(gw2GuildId, userId, memberRoleId);
+          }
         }
       } catch {
         // ignora falha ao atribuir role individual

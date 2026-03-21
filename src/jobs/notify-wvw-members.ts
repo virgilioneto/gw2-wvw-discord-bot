@@ -1,7 +1,8 @@
 /**
  * Job: Notifica membros que têm discord_user preenchido mas wvw_member = false.
  * Se a guilda tiver notify_channel: envia uma mensagem no canal marcando todos os usuários.
- * Caso contrário: envia DM para cada usuário.
+ * Usa guild.notification_message (content/embeds) quando configurada; senão texto padrão sobre Battle Guild.
+ * Caso contrário (sem canal): envia DM para cada usuário com a mesma lógica de texto/embeds.
  *
  * Executa apenas no sábado e na segunda-feira que antecedem a primeira sexta-feira do mês.
  * Em qualquer outra data, o job termina sem fazer nada.
@@ -11,8 +12,24 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import { Client, GatewayIntentBits } from 'discord.js';
-import { Guild } from '../models/Guild';
+import { Guild, type IGuild } from '../models/Guild';
 import { findPendingWvwMembers } from '../services/guildMemberService';
+import {
+  buildEmbedsFromStoredPayload,
+  fetchPreparedAttachmentsFromUrls,
+  toAttachmentBuilders,
+} from '../utils/storedMessagePayload';
+
+const DEFAULT_NOTIFY_TEXT =
+  'Vocês ainda não estão com a guilda configurada como Battle Guild.';
+
+const MAX_MESSAGE_LENGTH = 2000;
+
+/** Corpo de texto: conteúdo salvo ou mensagem padrão. */
+function getNotificationBodyText(guildDoc: IGuild): string {
+  const trimmed = guildDoc.notification_message?.content?.trim();
+  return trimmed || DEFAULT_NOTIFY_TEXT;
+}
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/gw2-wvw-bot';
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -67,7 +84,7 @@ function shouldRunToday(): boolean {
 
   const isSaturdayRun = dayOfWeek === 6 && day === saturdayBefore && saturdayBefore >= 1;
   const isMondayRun = dayOfWeek === 1 && day === mondayBefore && mondayBefore >= 1;
-
+return true
   return isSaturdayRun || isMondayRun;
 }
 
@@ -107,6 +124,10 @@ async function run(): Promise<void> {
       continue;
     }
 
+    const nm = guild.notification_message;
+    const notifyEmbeds = buildEmbedsFromStoredPayload(nm);
+    const notifyPrepared = await fetchPreparedAttachmentsFromUrls(nm?.attachment_urls);
+
     if (guild.notify_channel) {
       try {
         const discordGuild = await client.guilds.fetch(guild.discord_server_id).catch(() => null);
@@ -117,14 +138,36 @@ async function run(): Promise<void> {
         const channel = discordGuild.channels.cache.get(guild.notify_channel) ?? await discordGuild.channels.fetch(guild.notify_channel).catch(() => null);
         if (channel && 'send' in channel) {
           const mentions = members.map((m) => `<@${m.discord_user}>`).join(' ');
-          const text = `A guilda **${guild.name}** não foi definida como guilda de WvW por vocês no jogo. Para contar nas escalações, definam-a como sua guilda de WvW em Guild Wars 2.`;
-          const fullContent = `${mentions}\n\n${text}`;
-          const MAX_LENGTH = 2000;
-          if (fullContent.length <= MAX_LENGTH) {
-            await channel.send({ content: fullContent });
+          const bodyText = getNotificationBodyText(guild);
+          const userIds = members.map((m) => m.discord_user);
+          const notifyFiles = notifyPrepared.length ? toAttachmentBuilders(notifyPrepared) : undefined;
+          const fullContent = `${mentions}\n\n${bodyText}`;
+
+          if (fullContent.length <= MAX_MESSAGE_LENGTH && !notifyEmbeds?.length && !notifyFiles?.length) {
+            await channel.send({
+              content: fullContent,
+              allowedMentions: { users: userIds },
+            });
+          } else if (fullContent.length <= MAX_MESSAGE_LENGTH) {
+            await channel.send({
+              content: fullContent,
+              embeds: notifyEmbeds,
+              files: notifyFiles,
+              allowedMentions: { users: userIds },
+            });
           } else {
-            await channel.send({ content: mentions });
-            await channel.send({ content: text });
+            await channel.send({
+              content: mentions,
+              allowedMentions: { users: userIds },
+            });
+            if (bodyText.length <= MAX_MESSAGE_LENGTH) {
+              await channel.send({ content: bodyText, embeds: notifyEmbeds, files: notifyFiles });
+            } else {
+              await channel.send({ content: bodyText.slice(0, MAX_MESSAGE_LENGTH - 1) + '…' });
+              if (notifyEmbeds?.length || notifyFiles?.length) {
+                await channel.send({ embeds: notifyEmbeds, files: notifyFiles });
+              }
+            }
           }
           totalChannelMessages++;
           console.log(`[${guild.name}] Mensagem enviada no canal de notificações (${members.length} menção(ões)).`);
@@ -144,9 +187,14 @@ async function run(): Promise<void> {
       try {
         const user = await client.users.fetch(member.discord_user);
         const dm = await user.createDM();
-        await dm.send(
-          `Você não atribuiu a guilda **${guild.name}** como guilda de WvW no jogo. Para contar nas escalações, defina-a como sua guilda de WvW em Guild Wars 2.`
-        );
+        const dmText = getNotificationBodyText(guild);
+        const dmEmbeds = notifyEmbeds;
+        const dmFiles = notifyPrepared.length ? toAttachmentBuilders(notifyPrepared) : undefined;
+        await dm.send({
+          content: dmText,
+          embeds: dmEmbeds,
+          files: dmFiles,
+        });
         totalSent++;
         process.stdout.write('.');
       } catch (err) {

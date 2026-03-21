@@ -3,6 +3,7 @@
  * Todas as regras de status (PENDING_GUILD_DATA, PENDING_DISCORD_DATA, CONFIRMED)
  * e inserções/atualizações devem passar por aqui.
  */
+import type { Guild } from 'discord.js';
 import { GuildMember, IGuildMember, type GuildMemberStatus } from '../models/GuildMember';
 import type { Gw2GuildMember } from './gw2GuildMembers';
 
@@ -20,6 +21,14 @@ export type LinkDiscordParams = {
   roles: string[];
   recruitment_message_id?: string;
   recruitment_channel_id?: string;
+  /**
+   * ID da role Discord (Guild.member_role). Se o membro passar de PENDING_DISCORD_DATA → CONFIRMED,
+   * esse ID é acrescentado ao array `roles` no documento (sem duplicar) e, se `discordGuild` existir,
+   * a role é atribuída no servidor Discord.
+   */
+  memberRoleIdOnConfirm?: string;
+  /** Servidor Discord onde aplicar `memberRoleIdOnConfirm` no membro (opcional). */
+  discordGuild?: Guild | null;
 };
 
 export type LinkDiscordResult = { updated: IGuildMember; status: GuildMemberStatus };
@@ -33,10 +42,22 @@ export async function linkDiscordToGameId(params: LinkDiscordParams): Promise<Li
   const existingMember = await GuildMember.findOne({ guild_id: guildId, account_id: accountId }).lean<IGuildMember>().exec();
   const status = computeStatusAfterLinkDiscord(existingMember ?? null);
 
+  const memberRoleToAdd = params.memberRoleIdOnConfirm?.trim();
+  const shouldAddMemberRoleToRoles =
+    existingMember?.status === 'PENDING_DISCORD_DATA' &&
+    status === 'CONFIRMED' &&
+    Boolean(memberRoleToAdd);
+
+  // Não misturar $set.roles e $addToSet.roles no mesmo update — o MongoDB retorna conflito.
+  let rolesToSet = [...roles];
+  if (shouldAddMemberRoleToRoles && memberRoleToAdd && !rolesToSet.includes(memberRoleToAdd)) {
+    rolesToSet = [...rolesToSet, memberRoleToAdd];
+  }
+
   const updatePayload: Record<string, unknown> = {
     discord_user: discordUserId,
     status,
-    roles,
+    roles: rolesToSet,
   };
   if (recruitment_message_id !== undefined) updatePayload.recruitment_message_id = recruitment_message_id;
   if (recruitment_channel_id !== undefined) updatePayload.recruitment_channel_id = recruitment_channel_id;
@@ -50,6 +71,18 @@ export async function linkDiscordToGameId(params: LinkDiscordParams): Promise<Li
     .exec();
 
   if (!updated) throw new Error('GuildMember.findOneAndUpdate returned null');
+
+  if (shouldAddMemberRoleToRoles && memberRoleToAdd && params.discordGuild) {
+    try {
+      const member = await params.discordGuild.members.fetch(discordUserId).catch(() => null);
+      if (member && !member.roles.cache.has(memberRoleToAdd)) {
+        await member.roles.add(memberRoleToAdd).catch(() => {});
+      }
+    } catch {
+      // falha de permissão / hierarquia de roles — banco já foi atualizado
+    }
+  }
+
   return { updated, status };
 }
 
@@ -165,4 +198,19 @@ export async function findByGuildAndDiscordUser(
 /** Remove um membro (ex.: substituição de ID de jogo). */
 export async function removeMember(guildId: string, accountId: string): Promise<void> {
   await GuildMember.deleteOne({ guild_id: guildId, account_id: accountId }).exec();
+}
+
+/**
+ * Adiciona ao array `roles` do guild_member o ID da role Discord de membro (Guild.member_role)
+ * quando essa role é atribuída ao usuário no Discord (sem duplicar).
+ */
+export async function addMemberRoleToGuildMemberRoles(
+  gw2GuildId: string,
+  discordUserId: string,
+  discordMemberRoleId: string
+): Promise<void> {
+  await GuildMember.findOneAndUpdate(
+    { guild_id: gw2GuildId, discord_user: discordUserId },
+    { $addToSet: { roles: discordMemberRoleId } }
+  ).exec();
 }

@@ -105,11 +105,14 @@ export async function handleDirectMessage(message: Message): Promise<void> {
     }
     const guildRoleIds = Array.isArray(guildDoc.notification_roles) ? guildDoc.notification_roles : [];
     const memberRoles = guildRoleIds.filter((roleId) => roles?.includes(roleId) ?? false);
+    const discordGuild = await message.client.guilds.fetch(guildDoc.discord_server_id).catch(() => null);
     const { status } = await linkDiscordToGameId({
       guildId: guildDoc.guild_id,
       accountId: gameId,
       discordUserId: message.author.id,
       roles: memberRoles,
+      memberRoleIdOnConfirm: guildDoc.member_role?.trim() || undefined,
+      discordGuild,
     });
 
     pendingGameIdByUser.delete(message.author.id);
@@ -195,6 +198,10 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
       try {
         await removeMember(pending.guildDoc.guild_id, pending.oldAccountId);
 
+        const discordGuild = await interaction.client.guilds
+          .fetch(pending.guildDoc.discord_server_id)
+          .catch(() => null);
+
         const { status } = await linkDiscordToGameId({
           guildId: pending.guildDoc.guild_id,
           accountId: pending.newGameId,
@@ -202,10 +209,12 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
           roles: pending.memberRoles,
           recruitment_message_id: pending.recruitmentMessageId,
           recruitment_channel_id: pending.recruitmentChannelId,
+          memberRoleIdOnConfirm: pending.guildDoc.member_role?.trim() || undefined,
+          discordGuild,
         });
 
         if (status === 'CONFIRMED') {
-          await reactRecruitmentMessageConfirmed(interaction.guild, pending.recruitmentChannelId, pending.recruitmentMessageId);
+          await reactRecruitmentMessageConfirmed(discordGuild, pending.recruitmentChannelId, pending.recruitmentMessageId);
         }
 
         await interaction.editReply(`ID de jogo substituído com sucesso. Novo vínculo: **${pending.newGameId}**. Status: **${getStatusLabel(status)}**.`);
@@ -236,6 +245,7 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     return;
   }
 
+  const discordGuild = message.guild ?? (await message.client.guilds.fetch(message.guildId).catch(() => null));
   const { status } = await linkDiscordToGameId({
     guildId: guildDoc.guild_id,
     accountId: gameId,
@@ -243,15 +253,21 @@ export async function handleRecruitmentChannelMessage(message: Message): Promise
     roles: memberRoles,
     recruitment_message_id: message.id,
     recruitment_channel_id: message.channelId,
+    memberRoleIdOnConfirm: guildDoc.member_role?.trim() || undefined,
+    discordGuild,
   });
 
   if (status === 'CONFIRMED') {
     await reactRecruitmentMessageConfirmed(message.guild, message.channelId, message.id);
   }
 
+  let content = `ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.`
+  if (status !== 'CONFIRMED') {
+    content += `\nEm breve um dos oficiais da guilda irá lhe enviar um invite no jogo.`;
+  }
   const dm = await sendRecruitmentDm(
     message.author,
-    { content: `ID de jogo registrado com sucesso. Status: **${getStatusLabel(status)}**.\nEm breve um dos oficiais da guilda irá lhe enviar um invite no jogo.` }
+    { content }
   );
   if (!dm) await message.reply(DM_FAILED_CHANNEL_MESSAGE).catch(() => {});
   else await message.react('☑').catch(() => {});

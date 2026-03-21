@@ -14,6 +14,12 @@ import {
   findByGuildAndAccount,
   findByGuildAndDiscordUser,
 } from '../services/guildMemberService';
+import {
+  buildEmbedsFromStoredPayload,
+  fetchPreparedAttachmentsFromUrls,
+  hasRenderableMessagePayload,
+  toAttachmentBuilders,
+} from '../utils/storedMessagePayload';
 
 const MODAL_ID = 'signup_modal';
 const INPUT_GAME_ID = 'signup_game_id';
@@ -126,18 +132,25 @@ export async function handleSignupModalSubmit(interaction: ModalSubmitInteractio
       return;
     }
 
-    const { updated, status } = await linkDiscordToGameId({
+    const { status } = await linkDiscordToGameId({
       guildId: guildDoc.guild_id,
       accountId: gameId,
       discordUserId: interaction.user.id,
       roles: guildRoleIds.filter((roleId) => member?.roles.cache.has(roleId) ?? false),
+      memberRoleIdOnConfirm: guildDoc.member_role?.trim() || undefined,
+      discordGuild: interaction.guild,
     });
 
     if (status === 'CONFIRMED') {
-      const recruitmentContent = guildDoc.recruitment_message?.content?.trim();
-      if (recruitmentContent) {
-        // mesma regra de notificação do comando /atualizar (via DM)
-        await interaction.user.send(recruitmentContent).catch(() => {});
+      const recPayload = guildDoc.recruitment_message;
+      if (hasRenderableMessagePayload(recPayload)) {
+        const embeds = buildEmbedsFromStoredPayload(recPayload);
+        const prepared = await fetchPreparedAttachmentsFromUrls(recPayload?.attachment_urls);
+        const files = prepared.length ? toAttachmentBuilders(prepared) : undefined;
+        const text = recPayload?.content?.trim();
+        await interaction.user
+          .send({ content: text || undefined, embeds, files })
+          .catch(() => {});
       }
     }
 

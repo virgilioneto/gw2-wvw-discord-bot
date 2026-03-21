@@ -121,6 +121,8 @@ export async function handleManualIncludeCommand(interaction: ChatInputCommandIn
       accountId: gameId,
       discordUserId: memberInfo.id,
       roles: memberRoles,
+      memberRoleIdOnConfirm: guildDoc.member_role?.trim() || undefined,
+      discordGuild: interaction.guild,
     });
 
     if (status === 'CONFIRMED' && updated.recruitment_message_id && updated.recruitment_channel_id) {

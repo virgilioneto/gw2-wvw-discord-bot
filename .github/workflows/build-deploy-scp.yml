@@ -1,4 +1,4 @@
-# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PASSWORD
+# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PASSWORD, DISCORD_TOKEN, CLIENT_ID, MONGODB_URI
 name: Build e envio via SCP
 
 on:
@@ -26,12 +26,17 @@ jobs:
         run: npm run build
 
       - name: Criar arquivo gw2-wvw-discord-bot.tar.gz
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
           set -e
           mkdir -p .deploy
           cp -a dist/. .deploy/
           cp package.json package-lock.json .deploy/
           cp -a pm2 .deploy/
+          envsubst '$DISCORD_TOKEN $CLIENT_ID $MONGODB_URI' < .env.example > .deploy/.env
           tar -czf gw2-wvw-discord-bot.tar.gz -C .deploy .
           rm -rf .deploy
 
@@ -57,6 +62,18 @@ jobs:
             cd "$HOME/gw2-wvw-discord-bot"
             tar -xzvf gw2-wvw-discord-bot.tar.gz
             rm -f gw2-wvw-discord-bot.tar.gz
+
+      - name: Instalar dependências no servidor (npm i --omit=dev)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          port: 22
+          script: |
+            set -e
+            cd "$HOME/gw2-wvw-discord-bot"
+            npm i --omit=dev
 
       - name: PM2 ecosystem
         uses: appleboy/ssh-action@v1

@@ -51,7 +51,12 @@ async function main(): Promise<void> {
   await disconnectDatabase();
 }
 
-main().catch((err) => {
+main()
+.then(() => {
+  console.log('Sincronização de membros concluída.');
+  process.exit(0);
+})
+.catch((err) => {
   console.error(err);
   process.exit(1);
 });

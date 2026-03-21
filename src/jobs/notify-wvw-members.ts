@@ -208,7 +208,12 @@ async function run(): Promise<void> {
   console.log('\nConexões encerradas.');
 }
 
-run().catch((err) => {
+run()
+.then(() => {
+  console.log('Notificação de membros concluída.');
+  process.exit(0);
+})
+.catch((err) => {
   console.error(err);
   process.exit(1);
 });

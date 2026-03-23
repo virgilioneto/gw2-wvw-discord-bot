@@ -109,15 +109,3 @@ jobs:
             set -e
             cd "$HOME/gw2-wvw-discord-bot"
             node deploy-commands.js
-
-      - name: PM2 ecosystem
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASSWORD }}
-          port: 22
-          script: |
-            set -e
-            cd "$HOME/gw2-wvw-discord-bot"
-            pm2 startOrReload pm2/ecosystem.config.cjs --update-env

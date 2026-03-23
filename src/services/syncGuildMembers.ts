@@ -12,6 +12,7 @@ import {
   markAsPendingGuildData,
   confirmFromGuildData,
   addMemberRoleToGuildMemberRoles,
+  removeMember,
 } from './guildMemberService';
 import { reactRecruitmentMessageConfirmed } from '../utils/recruitmentMessage';
 import {
@@ -31,6 +32,9 @@ export type ConfirmedRecruitmentUserId = string;
  */
 export type ConfirmedWithoutRecruitmentUserId = string;
 
+/** CONFIRMED no DB mas ausente na API GW2 — processado em applyPostSyncActions (Discord + DB). */
+export type ConfirmedAbsentFromApi = { account_id: string; discord_user: string | null };
+
 export type SyncMembersResult =
   | {
       ok: true;
@@ -40,8 +44,78 @@ export type SyncMembersResult =
       recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[];
       confirmedRecruitmentDiscordUserIds: ConfirmedRecruitmentUserId[];
       confirmedWithoutRecruitmentDiscordUserIds: ConfirmedWithoutRecruitmentUserId[];
+      confirmedAbsentFromApi: ConfirmedAbsentFromApi[];
     }
   | { ok: false; error: string };
+
+export type PostSyncStats = {
+  confirmedAbsentUpdated: number;
+  confirmedAbsentDeleted: number;
+};
+
+function filterOutNotificationRoles(roles: string[], notificationRoleIds: string[]): string[] {
+  const set = new Set(notificationRoleIds);
+  return roles.filter((id) => !set.has(id));
+}
+
+/**
+ * CONFIRMED que saiu da guilda na API: remove notification_roles no Discord, atualiza DB
+ * (roles filtrado + PENDING_GUILD_DATA) ou remove o registro se o usuário não está no servidor.
+ */
+async function processConfirmedAbsentFromApi(
+  discordGuild: Guild,
+  guildConfig: PostSyncGuildConfig,
+  items: ConfirmedAbsentFromApi[]
+): Promise<PostSyncStats> {
+  const gw2GuildId = guildConfig.guild_id;
+  const notificationRoleIds = Array.isArray(guildConfig.notification_roles)
+    ? guildConfig.notification_roles.filter(Boolean)
+    : [];
+  let confirmedAbsentUpdated = 0;
+  let confirmedAbsentDeleted = 0;
+
+  for (const { account_id, discord_user } of items) {
+    const row = await GuildMember.findOne({ where: { guild_id: gw2GuildId, account_id } });
+    if (!row) continue;
+
+    if (!discord_user) {
+      const roles = [...((row.roles as string[]) ?? [])];
+      await row.update({
+        status: 'PENDING_GUILD_DATA',
+        joined_at: null,
+        roles: filterOutNotificationRoles(roles, notificationRoleIds),
+      });
+      confirmedAbsentUpdated++;
+      continue;
+    }
+
+    const member = await discordGuild.members.fetch(discord_user).catch(() => null);
+    if (!member) {
+      await removeMember(gw2GuildId, account_id);
+      confirmedAbsentDeleted++;
+      continue;
+    }
+
+    const toRemove = notificationRoleIds.filter((id) => member.roles.cache.has(id));
+    if (toRemove.length > 0) {
+      try {
+        await member.roles.remove(toRemove);
+      } catch {
+        // hierarquia / permissões — ainda atualizamos o DB
+      }
+    }
+
+    const roles = [...((row.roles as string[]) ?? [])];
+    await row.update({
+      status: 'PENDING_GUILD_DATA',
+      joined_at: null,
+      roles: filterOutNotificationRoles(roles, notificationRoleIds),
+    });
+    confirmedAbsentUpdated++;
+  }
+
+  return { confirmedAbsentUpdated, confirmedAbsentDeleted };
+}
 
 /** Config da guilda necessária para aplicar ações pós-sync (recrutamento, member_role). */
 export type PostSyncGuildConfig = {
@@ -54,7 +128,7 @@ export type PostSyncGuildConfig = {
 };
 
 /**
- * Aplica as ações pós-sincronização: reação em mensagens de recrutamento,
+ * Aplica as ações pós-sincronização: CONFIRMED ausente na API (roles + DB), reação em recrutamento,
  * DM e mensagem no canal para confirmados, atribuição de member_role.
  * Usado pelo comando /atualizar e pelo job sync-guild-members.
  */
@@ -62,8 +136,15 @@ export async function applyPostSyncActions(
   discordGuild: Guild,
   guildConfig: PostSyncGuildConfig,
   result: Extract<SyncMembersResult, { ok: true }>
-): Promise<void> {
-  const { recruitmentMessagesToConfirm, confirmedRecruitmentDiscordUserIds, confirmedWithoutRecruitmentDiscordUserIds } = result;
+): Promise<PostSyncStats> {
+  const {
+    recruitmentMessagesToConfirm,
+    confirmedRecruitmentDiscordUserIds,
+    confirmedWithoutRecruitmentDiscordUserIds,
+    confirmedAbsentFromApi = [],
+  } = result;
+
+  const absentStats = await processConfirmedAbsentFromApi(discordGuild, guildConfig, confirmedAbsentFromApi);
 
   for (const { channelId, messageId } of recruitmentMessagesToConfirm ?? []) {
     await reactRecruitmentMessageConfirmed(discordGuild, channelId, messageId);
@@ -145,6 +226,8 @@ export async function applyPostSyncActions(
       }
     }
   }
+
+  return absentStats;
 }
 
 export async function syncMembersForGuild(
@@ -162,6 +245,7 @@ export async function syncMembersForGuild(
   const recruitmentMessagesToConfirm: RecruitmentMessageToConfirm[] = [];
   const confirmedRecruitmentDiscordUserIds: ConfirmedRecruitmentUserId[] = [];
   const confirmedWithoutRecruitmentDiscordUserIds: ConfirmedWithoutRecruitmentUserId[] = [];
+  const confirmedAbsentFromApi: ConfirmedAbsentFromApi[] = [];
 
   const dbRows = await GuildMember.findAll({ where: { guild_id: guildId } });
   const dbMembers = dbRows.map((m) => m.toJSON() as IGuildMember);
@@ -198,9 +282,16 @@ export async function syncMembersForGuild(
     }
   }
 
-  for (const [accountId] of dbMembersMap.entries()) {
-    await markAsPendingGuildData(guildId, accountId);
-    pendingGuildDataCount++;
+  for (const [accountId, dbMember] of dbMembersMap.entries()) {
+    if (dbMember.status === 'CONFIRMED') {
+      confirmedAbsentFromApi.push({
+        account_id: accountId,
+        discord_user: dbMember.discord_user,
+      });
+    } else {
+      await markAsPendingGuildData(guildId, accountId);
+      pendingGuildDataCount++;
+    }
   }
 
   return {
@@ -211,5 +302,6 @@ export async function syncMembersForGuild(
     recruitmentMessagesToConfirm,
     confirmedRecruitmentDiscordUserIds,
     confirmedWithoutRecruitmentDiscordUserIds,
+    confirmedAbsentFromApi,
   };
 }

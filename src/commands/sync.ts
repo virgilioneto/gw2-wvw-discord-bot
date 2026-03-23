@@ -41,14 +41,22 @@ export async function handleSyncCommand(interaction: ChatInputCommandInteraction
   }
 
   const guild = interaction.guild;
+  let postStats = { confirmedAbsentUpdated: 0, confirmedAbsentDeleted: 0 };
   if (guild) {
-    await applyPostSyncActions(guild, guildDoc, result);
+    postStats = await applyPostSyncActions(guild, guildDoc, result);
   }
+
+  const absentLines =
+    result.confirmedAbsentFromApi.length > 0
+      ? `\n• Confirmados ausentes na API GW2: **${postStats.confirmedAbsentUpdated}** atualizado(s) (roles de notificação removidas, status pendente).\n` +
+        `• Sem presença no Discord: **${postStats.confirmedAbsentDeleted}** removido(s) do banco.`
+      : '';
 
   await interaction.editReply({
     content: `Sincronização concluída para **${guildDoc.name}**.\n` +
       `• ${result.pendingGuildDataCount} membro(s) com dados da Guilda pendentes.\n` +
       `• ${result.pendingDiscordDataCount} membro(s) com dados do Discord pendentes.\n` +
-      `• ${result.confirmedCount} membro(s) confirmados.`,
+      `• ${result.confirmedCount} membro(s) confirmados.` +
+      absentLines,
   });
 }

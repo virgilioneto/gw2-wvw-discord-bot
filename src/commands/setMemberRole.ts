@@ -28,7 +28,7 @@ function getGuildRoleOptions(
 
 export const setMemberRoleCommand = new SlashCommandBuilder()
   .setName('role-membro')
-  .setDescription('Selecionar Role de Membro: define a role de membro da guilda (salva em guild.member_role).')
+  .setDescription('[ADM] Defina a role de membro da guilda.')
   .toJSON();
 
 export async function handleSetMemberRoleCommand(

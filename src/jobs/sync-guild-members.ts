@@ -26,6 +26,8 @@ async function main(): Promise<void> {
 
   const guilds = await Guild.findAll();
   let pendingGuildDataCount = 0;
+  let totalAbsentUpdated = 0;
+  let totalAbsentDeleted = 0;
 
   for (const guild of guilds) {
     const result = await syncMembersForGuild(guild.guild_id, guild.api_key);
@@ -34,18 +36,29 @@ async function main(): Promise<void> {
       continue;
     }
     if (result.pendingGuildDataCount > 0) {
-      console.log(`${result.pendingGuildDataCount} membro(s) com dados da Guilda pendentes.`);
+      console.log(`[${guild.name}] ${result.pendingGuildDataCount} membro(s) com dados da Guilda pendentes.`);
     }
     pendingGuildDataCount += result.pendingGuildDataCount;
 
     const discordGuild = await client.guilds.fetch(guild.discord_server_id).catch(() => null);
     if (discordGuild) {
-      await applyPostSyncActions(discordGuild, guild, result);
+      const postStats = await applyPostSyncActions(discordGuild, guild, result);
+      totalAbsentUpdated += postStats.confirmedAbsentUpdated;
+      totalAbsentDeleted += postStats.confirmedAbsentDeleted;
+      if (result.confirmedAbsentFromApi.length > 0) {
+        console.log(
+          `[${guild.name}] Confirmados ausentes na API GW2: ${postStats.confirmedAbsentUpdated} atualizado(s), ` +
+            `${postStats.confirmedAbsentDeleted} removido(s) do banco (sem Discord).`
+        );
+      }
     }
   }
 
   console.log(`Guildas processadas: ${guilds.length}`);
   console.log(`Total de membros com dados da Guilda pendentes: ${pendingGuildDataCount}`);
+  console.log(
+    `Confirmados ausentes na API GW2 (todas as guildas): ${totalAbsentUpdated} atualizado(s), ${totalAbsentDeleted} removido(s) do banco.`
+  );
 
   await client.destroy();
   await disconnectDatabase();

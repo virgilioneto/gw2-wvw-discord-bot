@@ -35,7 +35,6 @@ jobs:
           mkdir -p .deploy
           cp -a dist/. .deploy/
           cp package.json package-lock.json .deploy/
-          cp -a pm2 .deploy/
           cp -a config .deploy/
           cp -a migrations .deploy/
           cp .sequelizerc .deploy/

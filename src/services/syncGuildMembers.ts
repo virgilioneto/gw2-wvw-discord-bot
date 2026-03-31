@@ -96,15 +96,6 @@ async function processConfirmedAbsentFromApi(
       continue;
     }
 
-    const toRemove = notificationRoleIds.filter((id) => member.roles.cache.has(id));
-    if (toRemove.length > 0) {
-      try {
-        await member.roles.remove(toRemove);
-      } catch {
-        // hierarquia / permissões — ainda atualizamos o DB
-      }
-    }
-
     const roles = [...((row.roles as string[]) ?? [])];
     await row.update({
       status: 'PENDING_GUILD_DATA',

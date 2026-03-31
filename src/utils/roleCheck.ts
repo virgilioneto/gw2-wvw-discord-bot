@@ -1,15 +1,22 @@
 import type { Guild, GuildMember } from 'discord.js';
+import { PermissionFlagsBits } from 'discord.js';
 
 /** Membro do servidor (GuildMember) ou dados da API (roles como array de IDs). */
 type MemberOrRoleIds = GuildMember | { roles: string[] } | null;
 
 /**
- * Verifica se o membro compartilha pelo menos uma role com o bot no servidor.
+ * Verifica se o membro compartilha pelo menos uma role com o bot no servidor
+ * OU se o membro é administrador do servidor.
  * A role @everyone é ignorada (todos a têm).
  * Retorna false se o servidor, o membro do usuário ou o membro do bot não existir.
  */
 export function userSharesRoleWithBot(guild: Guild | null, member: MemberOrRoleIds): boolean {
   if (!guild || !member) return false;
+
+  if ('permissions' in member && (member as GuildMember).permissions.has(PermissionFlagsBits.Administrator)) {
+    return true;
+  }
+
   const botMember = guild.members.me;
   if (!botMember) return false;
   const guildId = guild.id;

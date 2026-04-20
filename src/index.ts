@@ -14,11 +14,11 @@ import {
   handleMessageTypeChoiceButton,
 } from './events/messageCreate';
 import { handleSignupCommand, handleSignupModalSubmit } from './commands/signup';
-import { handleSetupCommand, handleSetupModalSubmit, handleSetupSelectMenu } from './commands/setup';
+import { handleSetupCommand, handleSetupModalSubmit, handleSetupAutocomplete } from './commands/setup';
 import { handleSyncCommand } from './commands/sync';
 import { handlePendingPlayersCommand } from './commands/pendingPlayers';
 import { handleManualIncludeCommand } from './commands/manualInclude';
-import { handleSetMemberRoleCommand, handleSetMemberRoleSelect } from './commands/setMemberRole';
+import { handleSetMemberRoleCommand, handleSetMemberRoleAutocomplete } from './commands/setMemberRole';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
@@ -53,6 +53,16 @@ client.on(Events.MessageCreate, (message) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === 'configurar') {
+      await handleSetupAutocomplete(interaction);
+      return;
+    }
+    if (interaction.commandName === 'role-membro') {
+      await handleSetMemberRoleAutocomplete(interaction);
+      return;
+    }
+  }
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'registrar') {
       await handleSignupCommand(interaction);
@@ -91,12 +101,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
   if (interaction.isMessageComponent()) {
     const handled = await handleMessageTypeChoiceButton(interaction);
-    if (handled) return;
-  }
-  if (interaction.isStringSelectMenu()) {
-    const handledMemberRole = await handleSetMemberRoleSelect(interaction);
-    if (handledMemberRole) return;
-    const handled = await handleSetupSelectMenu(interaction);
     if (handled) return;
   }
 });

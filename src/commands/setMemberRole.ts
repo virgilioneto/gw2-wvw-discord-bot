@@ -1,35 +1,58 @@
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
-  StringSelectMenuBuilder,
-  StringSelectMenuInteraction,
-  ActionRowBuilder,
+  AutocompleteInteraction,
+  ApplicationCommandOptionChoiceData,
 } from 'discord.js';
 import { Guild } from '../models/Guild';
 import { userSharesRoleWithBot } from '../utils/roleCheck';
 
-const SELECT_MEMBER_ROLE_ID = 'set_member_role_select';
-const MAX_SELECT_OPTIONS = 25;
+/** Nome da opção slash (autocomplete); antes era o customId do StringSelectMenu. */
+export const SELECT_MEMBER_ROLE_ID = 'set_member_role_select';
 
-function getGuildRoleOptions(
+const MAX_AUTOCOMPLETE = 25;
+
+function truncateChoiceName(name: string, max = 100): string {
+  if (name.length <= max) return name;
+  return name.slice(0, max - 1) + '…';
+}
+
+function roleAutocompleteChoices(
   discordGuild: { id: string; roles: { cache: Map<string, { id: string; name: string }> } },
-  currentRoleId?: string
-) {
-  const roles = Array.from(discordGuild.roles.cache.values())
-    .filter((r) => r.id !== discordGuild.id)
-    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
-    .slice(0, MAX_SELECT_OPTIONS);
-  return roles.map((r) => ({
-    label: r.name ?? r.id,
+  focused: string
+): ApplicationCommandOptionChoiceData[] {
+  const q = focused.trim().toLowerCase();
+  let roles = Array.from(discordGuild.roles.cache.values()).filter((r) => r.id !== discordGuild.id);
+  roles.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  if (q) roles = roles.filter((r) => (r.name ?? '').toLowerCase().includes(q));
+  else roles = roles.slice(0, MAX_AUTOCOMPLETE);
+  return roles.slice(0, MAX_AUTOCOMPLETE).map((r) => ({
+    name: truncateChoiceName(r.name ?? r.id),
     value: r.id,
-    description: r.id === currentRoleId ? 'Atual' : undefined,
   }));
 }
 
 export const setMemberRoleCommand = new SlashCommandBuilder()
   .setName('role-membro')
   .setDescription('[ADM] Defina a role de membro da guilda.')
+  .addStringOption((opt) =>
+    opt
+      .setName(SELECT_MEMBER_ROLE_ID)
+      .setDescription('Busque pelo nome da role (até 25 resultados)')
+      .setRequired(true)
+      .setAutocomplete(true)
+  )
   .toJSON();
+
+export async function handleSetMemberRoleAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  const focused = interaction.options.getFocused(true);
+  if (!interaction.guild || focused.name !== SELECT_MEMBER_ROLE_ID) {
+    await interaction.respond([]).catch(() => {});
+    return;
+  }
+  const choices = roleAutocompleteChoices(interaction.guild, focused.value);
+  await interaction.respond(choices).catch(() => {});
+}
 
 export async function handleSetMemberRoleCommand(
   interaction: ChatInputCommandInteraction
@@ -60,68 +83,20 @@ export async function handleSetMemberRoleCommand(
     return;
   }
 
-  const options = getGuildRoleOptions(interaction.guild, guildDoc.member_role ?? undefined);
-  if (options.length === 0) {
+  const roleId = interaction.options.getString(SELECT_MEMBER_ROLE_ID, true);
+  const role = interaction.guild.roles.cache.get(roleId);
+  if (!role || role.id === interaction.guild.id) {
     await interaction.reply({
-      content: 'Não há roles disponíveis neste servidor (além de @everyone).',
+      content: 'Role inválida ou indisponível. Escolha outra opção na lista de autocomplete.',
       ephemeral: true,
     });
     return;
   }
 
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(SELECT_MEMBER_ROLE_ID)
-    .setPlaceholder('Selecione a role de membro')
-    .addOptions(options);
-
-  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-  await interaction.reply({
-    content: 'Selecione a role que representa **membro da guilda** (será salva em `guild.member_role`):',
-    components: [row],
-    ephemeral: true,
-  });
-}
-
-export async function handleSetMemberRoleSelect(
-  interaction: StringSelectMenuInteraction
-): Promise<boolean> {
-  if (interaction.customId !== SELECT_MEMBER_ROLE_ID) return false;
-
-  const discordServerId = interaction.guildId;
-  if (!discordServerId || !interaction.guild) {
-    await interaction.reply({ content: 'Servidor não encontrado.', ephemeral: true }).catch(() => {});
-    return true;
-  }
-
-  if (!userSharesRoleWithBot(interaction.guild, interaction.member as Parameters<typeof userSharesRoleWithBot>[1])) {
-    await interaction.reply({
-      content: 'Você não tem permissão para esta ação.',
-      ephemeral: true,
-    }).catch(() => {});
-    return true;
-  }
-
-  const roleId = interaction.values[0];
-  if (!roleId) {
-    await interaction.reply({ content: 'Nenhuma role selecionada.', ephemeral: true }).catch(() => {});
-    return true;
-  }
-
-  const guildDoc = await Guild.findOne({ where: { discord_server_id: discordServerId } });
-  if (!guildDoc) {
-    await interaction.reply({ content: 'Guilda não encontrada para este servidor.', ephemeral: true }).catch(() => {});
-    return true;
-  }
-
-  const role = interaction.guild.roles.cache.get(roleId);
-  const roleName = role?.name ?? roleId;
-
   await Guild.update({ member_role: roleId }, { where: { discord_server_id: discordServerId } });
 
-  await interaction.update({
-    content: `Role de membro selecionada: **${roleName}**.`,
-    components: [],
-  }).catch(() => {});
-
-  return true;
+  await interaction.reply({
+    content: `Role de membro definida: **${role.name}**.`,
+    ephemeral: true,
+  });
 }
